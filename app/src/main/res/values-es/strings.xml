@@ -1645,7 +1645,7 @@
     <string name="account_error_unexpected">Se produjo un error inesperado.</string>
     <string name="account_generate_sync_desc">Genera un código de sincronización para conectar este dispositivo con otros sin iniciar sesión.</string>
     <string name="account_generate_sync_signed_in_desc">Genera un código de sincronización para conectar este dispositivo con tu cuenta y otros dispositivos.</string>
-    <string name="account_signed_in_as">Conectado como %1$s</string>
+    <string name="account_signed_in_as">Sesión iniciada como</string>
     <string name="account_signin_create_desc">Crea una cuenta para sincronizar tu biblioteca, historial y progreso entre dispositivos.</string>
     <string name="account_signin_create_title">Crear cuenta</string>
     <string name="account_unknown_device">Dispositivo desconocido</string>
@@ -1659,7 +1659,7 @@
     <string name="meta_error_detail_addon_request_failed">la solicitud del complemento falló</string>
     <string name="addon_manage_addons_only_from_phone_subtitle">Esta pantalla solo puede administrarse desde tu teléfono</string>
     <string name="addon_manage_collections_from_phone_subtitle">Esta pantalla de colecciones solo puede administrarse desde tu teléfono</string>
-    <string name="addon_pending_collections_replace">Sustituir colecciones pendientes</string>
+    <string name="addon_pending_collections_replace">%1$d colección(es) sustituirán a las colecciones actuales</string>
     <string name="addon_pending_collections_updated">Las colecciones pendientes se han actualizado</string>
     <string name="addon_qr_addons_only_scan_instruction">Escanea con tu teléfono para administrar solo complementos</string>
     <string name="addon_qr_collections_scan_instruction">Escanea con tu teléfono para administrar colecciones</string>
@@ -1683,7 +1683,7 @@
     <string name="audio_center_mix_unavailable">La mezcla central no está disponible en este dispositivo</string>
     <string name="audio_center_mix_value_db">%1$d dB</string>
     <string name="audio_delay_label">Retraso de audio</string>
-    <string name="audio_delay_range">Rango: %1$d ms a %2$d ms</string>
+    <string name="audio_delay_range">Rango: %1$.2fs a %2$.2fs</string>
     <string name="audio_enable_downmix_title">Habilitar mezcla descendente</string>
     <string name="audio_enable_downmix_subtitle">Usa la ruta de mezcla descendente de FFmpeg. Cuando está desactivado, el audio sigue la ruta anterior de Android/dispositivo.</string>
     <string name="audio_lang_original">Idioma original</string>
@@ -1750,14 +1750,14 @@
     <string name="cd_audio_tracks">Pistas de audio</string>
     <string name="cd_back">Atrás</string>
     <string name="cd_close_more_actions">Cerrar más acciones</string>
-    <string name="cd_collapse">Colapsar</string>
+    <string name="cd_collapse">Contraer %1$s</string>
     <string name="cd_contributor_qr">QR del colaborador</string>
     <string name="cd_current">Actual</string>
     <string name="cd_delete">Eliminar</string>
     <string name="cd_donation_qr">QR de donación</string>
     <string name="cd_edit">Editar</string>
     <string name="cd_episodes">Episodios</string>
-    <string name="cd_expand">Expandir</string>
+    <string name="cd_expand">Expandir %1$s</string>
     <string name="cd_imdb">IMDb</string>
     <string name="cd_loading_backdrop">Cargando fondo</string>
     <string name="cd_loading_logo">Cargando logotipo</string>
@@ -1802,14 +1802,14 @@
     <string name="collections_card_title">Título de la colección</string>
     <string name="collections_confirm_import">Confirmar importación</string>
     <string name="collections_delete_confirm">Eliminar colección</string>
-    <string name="collections_delete_confirm_subtitle">Esta acción eliminará la colección de forma permanente.</string>
+    <string name="collections_delete_confirm_subtitle">Esta acción eliminará «%1$s» de forma permanente. No se puede deshacer.</string>
     <string name="collections_delete_confirm_title">¿Eliminar esta colección?</string>
     <string name="collections_editor_add_catalog">Añadir catálogo</string>
     <string name="collections_editor_add_folder">Añadir carpeta</string>
     <string name="collections_editor_add_source">Añadir fuente</string>
     <string name="collections_editor_add_tmdb_source">Añadir fuente de TMDB</string>
     <string name="collections_editor_add_trakt_source">Añadir fuente de Trakt</string>
-    <string name="collections_editor_addon_missing">Falta el complemento</string>
+    <string name="collections_editor_addon_missing">Complemento no instalado: %1$s</string>
     <string name="collections_editor_all_genres">Todos los géneros</string>
     <string name="collections_editor_back">Atrás</string>
     <string name="collections_editor_backdrop">Telón de fondo</string>
@@ -1826,7 +1826,7 @@
     <string name="collections_editor_cover_emoji">Emoji de portada</string>
     <string name="collections_editor_cover_image_url">URL de imagen de portada</string>
     <string name="collections_editor_cover_none">Sin portada</string>
-    <string name="collections_editor_delete_folder_subtitle">Esto eliminará la carpeta de la colección.</string>
+    <string name="collections_editor_delete_folder_subtitle">Esto eliminará «%1$s» y su contenido de forma permanente.</string>
     <string name="collections_editor_delete_folder_title">¿Eliminar carpeta?</string>
     <string name="collections_editor_direction_asc_short">Asc.</string>
     <string name="collections_editor_direction_desc_short">Desc.</string>
@@ -2107,7 +2107,7 @@
     <string name="collections_fetch_url">Obtener URL</string>
     <string name="collections_fetching">Obteniendo...</string>
     <string name="collections_file_description">Importa colecciones desde un archivo JSON.</string>
-    <string name="collections_file_loaded">Archivo cargado</string>
+    <string name="collections_file_loaded">Archivo cargado (%1$d caracteres)</string>
     <string name="collections_load_file">Cargar archivo</string>
     <string name="collections_mode_file">Archivo</string>
     <string name="collections_mode_paste">Pegar</string>
@@ -2119,7 +2119,7 @@
     <string name="collections_tab_all">Todo</string>
     <string name="collections_tab_combined">Combinado</string>
     <string name="collections_valid_json">JSON válido</string>
-    <string name="collections_valid_summary">Resumen válido</string>
+    <string name="collections_valid_summary">%1$d colección(es), %2$d carpeta(s)</string>
     <string name="collections_validate">Validar</string>
     <string name="contributor_role_maintainer">Mantenedor</string>
     <string name="contributor_role_translator">Traductor</string>
