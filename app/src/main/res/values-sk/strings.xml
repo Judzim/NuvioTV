@@ -2903,6 +2903,9 @@
 <string name="tracking_simkl_anime_id_imdb">Uprednostniť IMDB</string>
 <string name="tracking_simkl_anime_id_mal">Uprednostniť MyAnimeList</string>
 <string name="tracking_simkl_anime_id_kitsu">Uprednostniť Kitsu</string>
+<string name="tracking_simkl_rewatches_section">Simkl rewatche</string>
+<string name="tracking_simkl_rewatches_title">Zaznamenávať rewatche v Simkl</string>
+<string name="tracking_simkl_rewatches_subtitle">Keď dopozeráte film alebo epizódu, ktoré už má Simkl vo vašej histórii, uloží sa ako samostatná rewatch session namiesto zahodenia. Vyžaduje Simkl Pro alebo VIP.</string>
 <string name="tracking_status_connected">Pripojené</string>
 <string name="tracking_status_disconnected">Nepripojené</string>
 <string name="tracking_status_waiting">Čaká na schválenie</string>

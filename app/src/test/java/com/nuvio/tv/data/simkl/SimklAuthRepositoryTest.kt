@@ -233,12 +233,14 @@ class SimklAuthRepositoryTest {
         override fun saveIdentity(
             username: String?,
             accountId: Long?,
+            accountType: String?,
             settingsActivityWatermark: String?,
             scope: SimklAuthScope
         ): Boolean = mutate(scope) { profile ->
             profile.state = profile.state.copy(
                 username = username,
                 accountId = accountId,
+                accountType = accountType,
                 hasFetchedUserSettings = true,
                 settingsActivityWatermark = settingsActivityWatermark
                     ?: profile.state.settingsActivityWatermark

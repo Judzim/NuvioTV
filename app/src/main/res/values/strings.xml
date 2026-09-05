@@ -452,6 +452,9 @@
     <string name="tracking_simkl_anime_id_imdb">Prefer IMDB</string>
     <string name="tracking_simkl_anime_id_mal">Prefer MyAnimeList</string>
     <string name="tracking_simkl_anime_id_kitsu">Prefer Kitsu</string>
+    <string name="tracking_simkl_rewatches_section">Simkl rewatches</string>
+    <string name="tracking_simkl_rewatches_title">Record rewatches in Simkl</string>
+    <string name="tracking_simkl_rewatches_subtitle">When you finish a movie or episode that Simkl already has in your history, save it as a separate rewatch session instead of discarding it. Requires Simkl Pro or VIP.</string>
     <string name="tracking_status_connected">Connected</string>
     <string name="tracking_status_disconnected">Not connected</string>
     <string name="tracking_status_waiting">Waiting for approval</string>

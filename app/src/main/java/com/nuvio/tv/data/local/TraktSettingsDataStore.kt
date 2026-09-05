@@ -72,6 +72,7 @@ class TraktSettingsDataStore @Inject constructor(
     private val librarySourceModeKey = stringPreferencesKey("library_source_mode")
     private val moreLikeThisSourceKey = stringPreferencesKey("more_like_this_source")
     private val simklAnimeIdPreferenceKey = stringPreferencesKey("simkl_anime_id_preference")
+    private val simklRewatchesEnabledKey = booleanPreferencesKey("simkl_rewatches_enabled")
 
     val continueWatchingDaysCap: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -230,6 +231,18 @@ class TraktSettingsDataStore @Inject constructor(
     suspend fun setSimklAnimeIdPreference(preference: SimklAnimeIdPreference) {
         store().edit { prefs ->
             prefs[simklAnimeIdPreferenceKey] = preference.name
+        }
+    }
+
+    val simklRewatchesEnabled: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            prefs[simklRewatchesEnabledKey] ?: false
+        }
+    }
+
+    suspend fun setSimklRewatchesEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[simklRewatchesEnabledKey] = enabled
         }
     }
 }

@@ -180,7 +180,8 @@ fun TrackingSettingsScreen(
         },
         onAnimeIdClick = {
             showAnimeIdDialog = true
-        }
+        },
+        onRewatchesChanged = trackingViewModel::setSimklRewatchesEnabled
     )
 
     when (activeProvider) {
@@ -404,7 +405,8 @@ internal fun TrackingSettingsOverview(
     onContinueWatchingWindowClick: () -> Unit,
     onCommentsChanged: (Boolean) -> Unit,
     onMoreLikeThisClick: () -> Unit,
-    onAnimeIdClick: () -> Unit
+    onAnimeIdClick: () -> Unit,
+    onRewatchesChanged: (Boolean) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val traktPresentation = traktConnectionPresentation(traktState)
@@ -547,6 +549,22 @@ internal fun TrackingSettingsOverview(
                                     value = animeIdPreferenceLabel(trackingState.simklAnimeIdPreference),
                                     onClick = onAnimeIdClick,
                                     modifier = Modifier.testTag("tracking_simkl_anime_id")
+                                )
+                            }
+                        }
+                        item(key = "tracking_simkl_rewatches") {
+                            SettingsGroupCard(
+                                title = stringResource(R.string.tracking_simkl_rewatches_section)
+                            ) {
+                                SettingsToggleRow(
+                                    title = stringResource(R.string.tracking_simkl_rewatches_title),
+                                    subtitle = stringResource(R.string.tracking_simkl_rewatches_subtitle),
+                                    checked = trackingState.simklRewatchesEnabled,
+                                    enabled = true,
+                                    onToggle = {
+                                        onRewatchesChanged(!trackingState.simklRewatchesEnabled)
+                                    },
+                                    modifier = Modifier.testTag("tracking_simkl_rewatches")
                                 )
                             }
                         }

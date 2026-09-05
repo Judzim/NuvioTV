@@ -55,7 +55,10 @@ class SimklMutationService internal constructor(
     suspend fun removeFromList(items: Collection<TrackingMediaReference>): TrackingMutationResult =
         removeFromHistory(items)
 
-    suspend fun addToHistory(items: Collection<TrackingHistoryItem>): TrackingMutationResult {
+    suspend fun addToHistory(
+        items: Collection<TrackingHistoryItem>,
+        allowRewatch: Boolean = false
+    ): TrackingMutationResult {
         val candidates = items.toList().also { historyItems ->
             require(historyItems.all { item -> item.media.hasResolvableIdentity }) {
                 "Simkl mutation requires a media ID or title for every item"
@@ -66,6 +69,7 @@ class SimklMutationService internal constructor(
             SimklApiRequest(
                 method = SimklHttpMethod.POST,
                 path = "/sync/history",
+                query = if (allowRewatch) mapOf("allow_rewatch" to "yes") else emptyMap(),
                 body = buildSimklHistoryMutationBody(candidates, json),
                 retryPolicy = SimklRetryPolicy.SYNC_WRITE
             )

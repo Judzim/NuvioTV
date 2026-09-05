@@ -29,6 +29,7 @@ data class TrackingSettingsUiState(
     val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
     val connectedProviderIds: Set<TrackingProviderId> = emptySet(),
     val simklAnimeIdPreference: SimklAnimeIdPreference = SimklAnimeIdPreference.DEFAULT,
+    val simklRewatchesEnabled: Boolean = false,
     val isReady: Boolean = false
 ) {
     val availableWatchProgressSources: List<WatchProgressSource>
@@ -56,8 +57,9 @@ class TrackingSettingsViewModel @Inject constructor(
                 sourceController.librarySourceMode,
                 traktAuthDataStore.state,
                 simklAuthRepository.state,
-                settingsDataStore.simklAnimeIdPreference
-            ) { watchProgressSource, librarySourceMode, traktState, simklState, animeIdPref ->
+                settingsDataStore.simklAnimeIdPreference,
+                settingsDataStore.simklRewatchesEnabled
+            ) { watchProgressSource, librarySourceMode, traktState, simklState, animeIdPref, rewatchesEnabled ->
                 val connectedProviderIds = buildSet {
                     if (traktState.isAuthenticated) add(TrackingProviderId.TRAKT)
                     if (simklState.isAuthenticated) add(TrackingProviderId.SIMKL)
@@ -71,6 +73,7 @@ class TrackingSettingsViewModel @Inject constructor(
                     librarySourceMode = effective.librarySourceMode,
                     connectedProviderIds = connectedProviderIds,
                     simklAnimeIdPreference = animeIdPref,
+                    simklRewatchesEnabled = rewatchesEnabled,
                     isReady = true
                 )
             }.collect { state ->
@@ -96,6 +99,12 @@ class TrackingSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsDataStore.setSimklAnimeIdPreference(preference)
             simklSyncRepository.invalidateProjections(preference)
+        }
+    }
+
+    fun setSimklRewatchesEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setSimklRewatchesEnabled(enabled)
         }
     }
 }

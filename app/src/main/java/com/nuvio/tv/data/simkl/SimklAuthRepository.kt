@@ -111,6 +111,7 @@ class SimklAuthRepository(
         val saved = storage.saveIdentity(
             username = username,
             accountId = settings.account?.id,
+            accountType = settings.account?.type,
             settingsActivityWatermark = activityWatermark,
             scope = scope
         )
