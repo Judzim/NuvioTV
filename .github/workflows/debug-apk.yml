@@ -1,0 +1,54 @@
+name: Debug APK
+
+on:
+  push:
+    branches:
+      - simkl-rewatch
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: debug-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Assemble full debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      KOTLIN_DAEMON_JVMARGS: -Xmx3072M
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Write local runtime properties
+        run: |
+          cat > local.properties <<EOF
+          SIMKL_CLIENT_ID=${{ secrets.SIMKL_CLIENT_ID }}
+          SIMKL_APP_NAME=${{ secrets.SIMKL_APP_NAME }}
+          EOF
+          # Remove lines whose secret was left empty so generated config falls back to defaults.
+          sed -i '/^[A-Z_]*=$/d' local.properties
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleFullDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuvio-tv-full-debug
+          path: app/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error
