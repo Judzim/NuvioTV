@@ -36,12 +36,18 @@ jobs:
 
       - name: Write local runtime properties
         run: |
+          printf '%s' "${{ secrets.NUVIO_KEYSTORE_B64 }}" | base64 -d > nuviotv.jks
           cat > local.properties <<EOF
           SIMKL_CLIENT_ID=${{ secrets.SIMKL_CLIENT_ID }}
           SIMKL_APP_NAME=${{ secrets.SIMKL_APP_NAME }}
+          NUVIO_RELEASE_STORE_FILE=../nuviotv.jks
+          NUVIO_RELEASE_STORE_PASSWORD=${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}
+          NUVIO_RELEASE_KEY_ALIAS=${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
+          NUVIO_RELEASE_KEY_PASSWORD=${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}
           EOF
           # Remove lines whose secret was left empty so generated config falls back to defaults.
           sed -i '/^[A-Z_]*=$/d' local.properties
+          ls -la nuviotv.jks
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleFullDebug --stacktrace
