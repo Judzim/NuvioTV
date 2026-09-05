@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      GRADLE_OPTS: -Dfile.encoding=UTF-8
-      KOTLIN_DAEMON_JVMARGS: -Xmx3072M
+      GRADLE_OPTS: -Dfile.encoding=UTF-8 -Xmx2560m -XX:MaxMetaspaceSize=768m
+      KOTLIN_DAEMON_JVMARGS: -Xmx1792m -XX:MaxMetaspaceSize=512m
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -50,7 +50,7 @@ jobs:
           ls -la nuviotv.jks
 
       - name: Assemble debug APK
-        run: ./gradlew :app:assembleFullDebug --stacktrace
+        run: ./gradlew :app:assembleFullDebug --max-workers=2 --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
