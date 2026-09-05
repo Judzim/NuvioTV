@@ -50,6 +50,11 @@ class TrackingSettingsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(TrackingSettingsUiState())
     val uiState: StateFlow<TrackingSettingsUiState> = _uiState.asStateFlow()
 
+    private val simklPreferences = combine(
+        settingsDataStore.simklAnimeIdPreference,
+        settingsDataStore.simklRewatchesEnabled
+    ) { animeIdPref, rewatchesEnabled -> animeIdPref to rewatchesEnabled }
+
     init {
         viewModelScope.launch {
             combine(
@@ -57,9 +62,9 @@ class TrackingSettingsViewModel @Inject constructor(
                 sourceController.librarySourceMode,
                 traktAuthDataStore.state,
                 simklAuthRepository.state,
-                settingsDataStore.simklAnimeIdPreference,
-                settingsDataStore.simklRewatchesEnabled
-            ) { watchProgressSource, librarySourceMode, traktState, simklState, animeIdPref, rewatchesEnabled ->
+                simklPreferences
+            ) { watchProgressSource, librarySourceMode, traktState, simklState, simklPrefs ->
+                val (animeIdPref, rewatchesEnabled) = simklPrefs
                 val connectedProviderIds = buildSet {
                     if (traktState.isAuthenticated) add(TrackingProviderId.TRAKT)
                     if (simklState.isAuthenticated) add(TrackingProviderId.SIMKL)
