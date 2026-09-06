@@ -336,6 +336,10 @@ androidComponents {
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
         variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
     }
+    onVariants(selector().withBuildType("release")) { variant ->
+        val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
+        variant.applicationId.set(if (isPlaystore) "com.nuvio.app" else "com.judzim.nuvio.tv")
+    }
 }
 
 composeCompiler {

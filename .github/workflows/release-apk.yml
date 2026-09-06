@@ -1,4 +1,4 @@
-name: Debug APK
+name: Release APK
 
 on:
   push:
@@ -10,12 +10,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: debug-apk-${{ github.ref }}
+  group: release-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Assemble full debug APK
+    name: Assemble signed release APKs
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -34,7 +34,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Write local runtime properties
+      - name: Decode keystore and write local runtime properties
         run: |
           printf '%s' "${{ secrets.NUVIO_KEYSTORE_B64 }}" | base64 -d > nuviotv.jks
           cat > local.properties <<EOF
@@ -52,12 +52,12 @@ jobs:
           sed -i '/^[A-Z_]*=$/d' local.properties
           ls -la nuviotv.jks
 
-      - name: Assemble debug APK
-        run: ./gradlew :app:assembleFullDebug --max-workers=2 --stacktrace
+      - name: Assemble release APKs
+        run: ./gradlew :app:assembleFullRelease --max-workers=2 --stacktrace
 
-      - name: Upload APK
+      - name: Upload APKs as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nuvio-tv-full-debug
-          path: app/build/outputs/apk/full/debug/*.apk
+          name: nuvio-tv-full-release
+          path: app/build/outputs/apk/full/release/*.apk
           if-no-files-found: error
