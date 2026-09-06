@@ -40,6 +40,9 @@ jobs:
           cat > local.properties <<EOF
           SIMKL_CLIENT_ID=${{ secrets.SIMKL_CLIENT_ID }}
           SIMKL_APP_NAME=${{ secrets.SIMKL_APP_NAME }}
+          NUVIO_SUPABASE_URL=${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY=${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL=${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
           NUVIO_RELEASE_STORE_FILE=../nuviotv.jks
           NUVIO_RELEASE_STORE_PASSWORD=${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}
           NUVIO_RELEASE_KEY_ALIAS=${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
