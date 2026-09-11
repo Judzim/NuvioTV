@@ -262,3 +262,38 @@ private fun TrackingExternalIds.comparableMatch(target: TrackingExternalIds): Bo
     if (kitsu != null && target.kitsu != null) return kitsu == target.kitsu
     return null
 }
+
+/**
+ * When the movie or episode this scrobble finished was watched before this playback, in epoch millis.
+ *
+ * Simkl only starts a rewatch session two days after the previous watch of the same item, and the
+ * scrobble response carries no history, so the answer comes from the snapshot as it was before this
+ * playback: [applyScrobbleResult] lands afterwards and would otherwise report the current watch as the
+ * previous one. Returns null when the item was never watched, which is also what suppresses the prompt.
+ * A value Simkl did not report as a full UTC timestamp is ignored, so it can only mean no prompt.
+ */
+internal fun SimklSyncSnapshot.lastWatchedAtEpochMs(result: SimklScrobbleResult): Long? {
+    val entry = entries.matchingEntry(result) ?: return null
+    val isMovieLike = result.mediaType == SimklMediaType.MOVIES ||
+        (result.mediaType == SimklMediaType.ANIME && result.episode == null)
+    if (isMovieLike) {
+        if (!entry.isMovieEntry() || entry.status == SimklListStatus.PLAN_TO_WATCH) return null
+        return parseSimklUtcEpochMs(entry.lastWatchedAt) ?: parseSimklUtcEpochMs(entry.lastWatched)
+    }
+    val target = result.episode ?: return null
+    val targetNumber = target.number ?: return null
+    val targetSeason = target.season ?: 1
+    val targetMapping = if (target.tvdbSeason != null && target.tvdbNumber != null) {
+        SimklEpisodeMapping(season = target.tvdbSeason, episode = target.tvdbNumber)
+    } else {
+        null
+    }
+    return entry.seasons
+        .flatMap { season -> season.episodes.map { episode -> season.number to episode } }
+        .asSequence()
+        .filter { (seasonNumber, episode) ->
+            episode.matches(targetSeason, targetNumber, targetMapping, seasonNumber)
+        }
+        .mapNotNull { (_, episode) -> parseSimklUtcEpochMs(episode.watchedAt) }
+        .maxOrNull()
+}

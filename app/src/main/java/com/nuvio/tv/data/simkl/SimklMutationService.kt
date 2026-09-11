@@ -93,7 +93,8 @@ class SimklMutationService internal constructor(
 
     internal suspend fun scrobble(
         action: TrackingScrobbleAction,
-        event: TrackingScrobbleEvent
+        event: TrackingScrobbleEvent,
+        recordRewatch: Boolean = false
     ): SimklScrobbleResult {
         require(event.media.hasResolvableIdentity) { "Simkl scrobble requires a media ID or title" }
         require(event.media.kind == TrackingMediaKind.MOVIE || event.media.episode != null) {
@@ -108,6 +109,7 @@ class SimklMutationService internal constructor(
                 SimklApiRequest(
                     method = SimklHttpMethod.POST,
                     path = "/scrobble/${action.wireValue}",
+                    query = if (recordRewatch) SIMKL_ALLOW_REWATCH_QUERY else emptyMap(),
                     body = buildSimklScrobbleBody(event, json),
                     retryPolicy = SimklRetryPolicy.NEVER,
                     scrobbleStopConflictIsSuccess = action == TrackingScrobbleAction.STOP
@@ -128,6 +130,38 @@ class SimklMutationService internal constructor(
                 "softSuccess=${response.isSoftSuccess} ${event.scrobbleDiagnosticSummary()}"
         )
         return response.toSimklScrobbleResult(action, event, json)
+    }
+
+    /**
+     * Records a rewatch the user confirmed after the watch itself was already scrobbled.
+     *
+     * `/sync/history` is the only path left at that point, and it must not be committed as a mutation
+     * receipt: the canonical entry was written by the scrobble, and rewatch progress never feeds it.
+     */
+    internal suspend fun recordRewatch(
+        media: TrackingMediaReference,
+        watchedAt: String?,
+        rewatchId: Long? = null
+    ): SimklRewatchWriteOutcome {
+        require(media.hasResolvableIdentity) { "Simkl rewatch requires a media ID or title" }
+        require(media.kind == TrackingMediaKind.MOVIE || media.episode != null) {
+            "Simkl series rewatch requires an episode"
+        }
+        Log.d(
+            TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
+            "simkl rewatch request kind=${media.kind.name.lowercase()} " +
+                "title=${media.title ?: "unknown"} pinned=${rewatchId != null}"
+        )
+        val response = client.execute(
+            SimklApiRequest(
+                method = SimklHttpMethod.POST,
+                path = "/sync/history",
+                query = SIMKL_ALLOW_REWATCH_QUERY,
+                body = buildSimklRewatchMutationBody(media, watchedAt, rewatchId, json),
+                retryPolicy = SimklRetryPolicy.SYNC_WRITE
+            )
+        )
+        return response.toSimklRewatchWriteOutcome()
     }
 
     private fun Collection<TrackingMediaReference>.validated(): List<TrackingMediaReference> =

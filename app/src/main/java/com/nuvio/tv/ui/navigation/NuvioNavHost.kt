@@ -49,6 +49,7 @@ import com.nuvio.tv.ui.screens.profile.ProfileSelectionMode
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
 import com.nuvio.tv.ui.screens.tmdb.TmdbEntityBrowseScreen
 import com.nuvio.tv.ui.screens.home.HeroBackdropState
+import com.nuvio.tv.ui.components.RewatchConfirmationPrompt
 
 @Composable
 fun NuvioNavHost(
@@ -1412,4 +1413,10 @@ fun NuvioNavHost(
             )
         }
     }
+
+    // The rewatch prompt answers to a finished watch, so it lives above the destinations: the player
+    // may be gone by the time Simkl confirms the stop.
+    RewatchConfirmationPrompt(
+        viewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    )
 }

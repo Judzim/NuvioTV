@@ -108,13 +108,34 @@ class SimklAuthRepository(
         val settings = runCatching { json.decodeFromString<SimklUserSettingsResponse>(response.body) }.getOrNull()
             ?: return null
         val username = settings.user?.name?.trim()?.takeIf(String::isNotBlank)
+        val accountType = settings.account?.type?.takeIf(String::isNotBlank)
+            ?: storage.state.value.accountType
         val saved = storage.saveIdentity(
             username = username,
             accountId = settings.account?.id,
+            accountType = accountType,
             settingsActivityWatermark = activityWatermark,
             scope = scope
         )
         return username.takeIf { saved }
+    }
+
+    /**
+     * Returns the cached plan from `/users/settings`, refetching it once when it is still unknown or
+     * does not prove Pro/VIP. Used to validate the rewatch setting at the moment the user enables it.
+     */
+    suspend fun ensurePlanLoaded(): String? {
+        val current = storage.state.value
+        if (!current.isAuthenticated) return current.accountType
+        if (isSimklRewatchPlanEligible(current.accountType)) return current.accountType
+        try {
+            refreshUserSettings()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            Unit
+        }
+        return storage.state.value.accountType
     }
 
     suspend fun synchronizeUserSettings(activityWatermark: String?) {

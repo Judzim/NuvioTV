@@ -86,6 +86,30 @@ class SimklAuthRepositoryTest {
     }
 
     @Test
+    fun `user settings carry the account plan into the auth state`() = runTest {
+        val harness = Harness(
+            response(200, """{"user":{"name":"viewer"},"account":{"id":42,"type":"vip"}}""")
+        )
+        harness.storage.completePinAuthorization("secret-token", harness.storage.currentScope())
+
+        assertEquals("viewer", harness.repository.refreshUserSettings())
+        assertEquals("vip", harness.storage.state.value.accountType)
+    }
+
+    @Test
+    fun `plan lookup keeps the cached type when the refresh omits it`() = runTest {
+        val harness = Harness(
+            response(200, """{"user":{"name":"viewer"},"account":{"id":42,"type":"pro"}}"""),
+            response(200, """{"user":{"name":"viewer"},"account":{"id":42}}""")
+        )
+        harness.storage.completePinAuthorization("secret-token", harness.storage.currentScope())
+
+        assertEquals("pro", harness.repository.ensurePlanLoaded())
+        assertEquals("pro", harness.repository.ensurePlanLoaded())
+        assertEquals("pro", harness.storage.state.value.accountType)
+    }
+
+    @Test
     fun `fresh init response while polling invalidates original code`() = runTest {
         val harness = Harness(
             response(
@@ -233,12 +257,14 @@ class SimklAuthRepositoryTest {
         override fun saveIdentity(
             username: String?,
             accountId: Long?,
+            accountType: String?,
             settingsActivityWatermark: String?,
             scope: SimklAuthScope
         ): Boolean = mutate(scope) { profile ->
             profile.state = profile.state.copy(
                 username = username,
                 accountId = accountId,
+                accountType = accountType,
                 hasFetchedUserSettings = true,
                 settingsActivityWatermark = settingsActivityWatermark
                     ?: profile.state.settingsActivityWatermark

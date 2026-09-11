@@ -13,7 +13,9 @@ import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklAuthRepository
+import com.nuvio.tv.data.simkl.SimklRewatchMode
 import com.nuvio.tv.data.simkl.SimklSyncRepository
+import com.nuvio.tv.data.simkl.isSimklRewatchModeSelectable
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -29,6 +31,7 @@ data class TrackingSettingsUiState(
     val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
     val connectedProviderIds: Set<TrackingProviderId> = emptySet(),
     val simklAnimeIdPreference: SimklAnimeIdPreference = SimklAnimeIdPreference.DEFAULT,
+    val simklRewatchMode: SimklRewatchMode = SimklRewatchMode.Default,
     val isReady: Boolean = false
 ) {
     val availableWatchProgressSources: List<WatchProgressSource>
@@ -44,10 +47,20 @@ class TrackingSettingsViewModel @Inject constructor(
     private val settingsDataStore: TraktSettingsDataStore,
     private val simklSyncRepository: SimklSyncRepository,
     traktAuthDataStore: TraktAuthDataStore,
-    simklAuthRepository: SimklAuthRepository
+    private val simklAuthRepository: SimklAuthRepository
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(TrackingSettingsUiState())
     val uiState: StateFlow<TrackingSettingsUiState> = _uiState.asStateFlow()
+
+    /** Set when a free plan picks a rewatch mode, so the screen can offer the upgrade prompt. */
+    private val _simklRewatchPlanBlocked = MutableStateFlow(false)
+    val simklRewatchPlanBlocked: StateFlow<Boolean> = _simklRewatchPlanBlocked.asStateFlow()
+
+    // Kept in a nested combine because the typed combine overload only takes five flows.
+    private val simklPreferences = combine(
+        settingsDataStore.simklAnimeIdPreference,
+        settingsDataStore.simklRewatchMode
+    ) { animeIdPreference, rewatchMode -> animeIdPreference to rewatchMode }
 
     init {
         viewModelScope.launch {
@@ -56,8 +69,9 @@ class TrackingSettingsViewModel @Inject constructor(
                 sourceController.librarySourceMode,
                 traktAuthDataStore.state,
                 simklAuthRepository.state,
-                settingsDataStore.simklAnimeIdPreference
-            ) { watchProgressSource, librarySourceMode, traktState, simklState, animeIdPref ->
+                simklPreferences
+            ) { watchProgressSource, librarySourceMode, traktState, simklState, simklPrefs ->
+                val (animeIdPref, rewatchMode) = simklPrefs
                 val connectedProviderIds = buildSet {
                     if (traktState.isAuthenticated) add(TrackingProviderId.TRAKT)
                     if (simklState.isAuthenticated) add(TrackingProviderId.SIMKL)
@@ -71,6 +85,7 @@ class TrackingSettingsViewModel @Inject constructor(
                     librarySourceMode = effective.librarySourceMode,
                     connectedProviderIds = connectedProviderIds,
                     simklAnimeIdPreference = animeIdPref,
+                    simklRewatchMode = rewatchMode,
                     isReady = true
                 )
             }.collect { state ->
@@ -97,5 +112,26 @@ class TrackingSettingsViewModel @Inject constructor(
             settingsDataStore.setSimklAnimeIdPreference(preference)
             simklSyncRepository.invalidateProjections(preference)
         }
+    }
+
+    fun selectSimklRewatchMode(mode: SimklRewatchMode) {
+        if (mode == SimklRewatchMode.OFF) {
+            viewModelScope.launch { settingsDataStore.setSimklRewatchMode(mode) }
+            return
+        }
+        viewModelScope.launch {
+            // Simkl only stores rewatch sessions for Pro and VIP, so the plan is validated when the
+            // user enables the feature instead of on the first write.
+            val accountType = simklAuthRepository.ensurePlanLoaded()
+            if (isSimklRewatchModeSelectable(mode, accountType)) {
+                settingsDataStore.setSimklRewatchMode(mode)
+            } else {
+                _simklRewatchPlanBlocked.value = true
+            }
+        }
+    }
+
+    fun dismissSimklRewatchPlanBlocked() {
+        _simklRewatchPlanBlocked.value = false
     }
 }

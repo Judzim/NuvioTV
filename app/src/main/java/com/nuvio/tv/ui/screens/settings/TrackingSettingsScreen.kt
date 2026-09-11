@@ -35,6 +35,7 @@ import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklConnectionMode
+import com.nuvio.tv.data.simkl.SimklRewatchMode
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -50,6 +51,7 @@ fun TrackingSettingsScreen(
     val traktState by traktViewModel.uiState.collectAsStateWithLifecycle()
     val simklState by simklViewModel.uiState.collectAsStateWithLifecycle()
     val trackingState by trackingViewModel.uiState.collectAsStateWithLifecycle()
+    val rewatchPlanBlocked by trackingViewModel.simklRewatchPlanBlocked.collectAsStateWithLifecycle()
     val traktFocusRequester = remember { FocusRequester() }
     val simklFocusRequester = remember { FocusRequester() }
     val libraryFocusRequester = remember { FocusRequester() }
@@ -66,6 +68,7 @@ fun TrackingSettingsScreen(
     var showDaysCapDialog by remember { mutableStateOf(false) }
     var showMoreLikeThisSourceDialog by remember { mutableStateOf(false) }
     var showAnimeIdDialog by remember { mutableStateOf(false) }
+    var showRewatchModeDialog by remember { mutableStateOf(false) }
 
     val hasOverlay = activeProvider != null ||
         disconnectProvider != null ||
@@ -73,7 +76,8 @@ fun TrackingSettingsScreen(
         showWatchProgressDialog ||
         showDaysCapDialog ||
         showMoreLikeThisSourceDialog ||
-        showAnimeIdDialog
+        showAnimeIdDialog ||
+        showRewatchModeDialog
 
     BackHandler(enabled = !hasOverlay) {
         onBackPress()
@@ -180,6 +184,9 @@ fun TrackingSettingsScreen(
         },
         onAnimeIdClick = {
             showAnimeIdDialog = true
+        },
+        onRewatchModeClick = {
+            showRewatchModeDialog = true
         }
     )
 
@@ -384,6 +391,42 @@ fun TrackingSettingsScreen(
             maxHeight = 360.dp
         )
     }
+
+    if (showRewatchModeDialog) {
+        SettingsSingleChoiceDialog(
+            title = stringResource(R.string.tracking_simkl_rewatch_dialog_title),
+            subtitle = stringResource(R.string.tracking_simkl_rewatch_dialog_subtitle),
+            options = listOf(
+                SettingsPickerOption(
+                    SimklRewatchMode.OFF,
+                    stringResource(R.string.tracking_simkl_rewatch_off),
+                    stringResource(R.string.tracking_simkl_rewatch_off_description)
+                ),
+                SettingsPickerOption(
+                    SimklRewatchMode.MANUAL,
+                    stringResource(R.string.tracking_simkl_rewatch_manual),
+                    stringResource(R.string.tracking_simkl_rewatch_manual_description)
+                ),
+                SettingsPickerOption(
+                    SimklRewatchMode.AUTOMATIC,
+                    stringResource(R.string.tracking_simkl_rewatch_automatic),
+                    stringResource(R.string.tracking_simkl_rewatch_automatic_description)
+                )
+            ),
+            selectedValue = trackingState.simklRewatchMode,
+            onOptionSelected = { mode ->
+                trackingViewModel.selectSimklRewatchMode(mode)
+                showRewatchModeDialog = false
+            },
+            onDismiss = { showRewatchModeDialog = false },
+            width = 660.dp,
+            maxHeight = 420.dp
+        )
+    }
+
+    if (rewatchPlanBlocked) {
+        SimklRewatchUpgradeDialog(onDismiss = trackingViewModel::dismissSimklRewatchPlanBlocked)
+    }
 }
 
 @Composable
@@ -404,7 +447,8 @@ internal fun TrackingSettingsOverview(
     onContinueWatchingWindowClick: () -> Unit,
     onCommentsChanged: (Boolean) -> Unit,
     onMoreLikeThisClick: () -> Unit,
-    onAnimeIdClick: () -> Unit
+    onAnimeIdClick: () -> Unit,
+    onRewatchModeClick: () -> Unit
 ) {
     val listState = rememberLazyListState()
     val traktPresentation = traktConnectionPresentation(traktState)
@@ -548,6 +592,13 @@ internal fun TrackingSettingsOverview(
                                     onClick = onAnimeIdClick,
                                     modifier = Modifier.testTag("tracking_simkl_anime_id")
                                 )
+                                SettingsActionRow(
+                                    title = stringResource(R.string.tracking_simkl_rewatch_title),
+                                    subtitle = stringResource(R.string.tracking_simkl_rewatch_subtitle),
+                                    value = simklRewatchModeLabel(trackingState.simklRewatchMode),
+                                    onClick = onRewatchModeClick,
+                                    modifier = Modifier.testTag("tracking_simkl_rewatch_mode")
+                                )
                             }
                         }
                     }
@@ -656,6 +707,13 @@ private fun animeIdPreferenceLabel(preference: SimklAnimeIdPreference): String =
     SimklAnimeIdPreference.IMDB -> stringResource(R.string.tracking_simkl_anime_id_imdb)
     SimklAnimeIdPreference.MAL -> stringResource(R.string.tracking_simkl_anime_id_mal)
     SimklAnimeIdPreference.KITSU -> stringResource(R.string.tracking_simkl_anime_id_kitsu)
+}
+
+@Composable
+private fun simklRewatchModeLabel(mode: SimklRewatchMode): String = when (mode) {
+    SimklRewatchMode.OFF -> stringResource(R.string.tracking_simkl_rewatch_off)
+    SimklRewatchMode.MANUAL -> stringResource(R.string.tracking_simkl_rewatch_manual)
+    SimklRewatchMode.AUTOMATIC -> stringResource(R.string.tracking_simkl_rewatch_automatic)
 }
 
 private enum class TrackingFocusTarget {

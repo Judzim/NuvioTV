@@ -16,6 +16,39 @@ internal enum class SimklScrobbleOutcome {
     SCROBBLE
 }
 
+/**
+ * Result of an `allow_rewatch=yes` scrobble. Simkl returns a wider set of values here than
+ * `/sync/all-items` does, so the client keeps its own enum rather than sharing one.
+ */
+internal enum class SimklRewatchStatus {
+    ACTIVE,
+    COMPLETED,
+    CLOSED,
+    FIRST_WATCH,
+    TOO_SOON,
+    NOT_ELIGIBLE,
+    PRO_REQUIRED,
+    UNKNOWN;
+
+    /** True when Simkl stored the watch on a rewatch session. */
+    val isRecorded: Boolean
+        get() = this == ACTIVE || this == COMPLETED || this == CLOSED
+
+    companion object {
+        fun fromWire(value: String?): SimklRewatchStatus? = when (value?.trim()?.lowercase()) {
+            null, "" -> null
+            "active" -> ACTIVE
+            "completed" -> COMPLETED
+            "closed" -> CLOSED
+            "first_watch" -> FIRST_WATCH
+            "too_soon" -> TOO_SOON
+            "not_eligible" -> NOT_ELIGIBLE
+            "pro_required" -> PRO_REQUIRED
+            else -> UNKNOWN
+        }
+    }
+}
+
 internal data class SimklScrobbleResult(
     val outcome: SimklScrobbleOutcome,
     val playbackId: Long?,
@@ -23,7 +56,9 @@ internal data class SimklScrobbleResult(
     val mediaType: SimklMediaType,
     val media: SimklMedia,
     val episode: SimklPlaybackEpisode?,
-    val watchedAt: String? = null
+    val watchedAt: String? = null,
+    val rewatchId: Long? = null,
+    val rewatchStatus: SimklRewatchStatus? = null
 )
 
 internal fun SimklApiResponse.toSimklScrobbleResult(
@@ -57,7 +92,9 @@ internal fun SimklApiResponse.toSimklScrobbleResult(
         media = responseMedia?.mergeMissing(fallbackMedia) ?: fallbackMedia,
         episode = episode,
         watchedAt = payload.stringValue("watched_at")
-            ?.takeIf { value -> parseSimklUtcEpochMs(value) != null }
+            ?.takeIf { value -> parseSimklUtcEpochMs(value) != null },
+        rewatchId = payload.longValue("rewatch_id"),
+        rewatchStatus = SimklRewatchStatus.fromWire(payload.stringValue("rewatch_status"))
     )
 }
 
