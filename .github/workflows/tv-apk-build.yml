@@ -1,4 +1,4 @@
-name: Scratch TV debug APK
+name: TV test APK
 
 on:
   push:
@@ -10,14 +10,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: scratch-apk-${{ github.ref }}
+  group: tv-test-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   apk:
-    name: Assemble and upload the debug APK
+    name: Assemble the 32-bit release APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       GRADLE_OPTS: -Dfile.encoding=UTF-8 -Xmx2560m -XX:MaxMetaspaceSize=768m
       KOTLIN_DAEMON_JVMARGS: -Xmx1792m -XX:MaxMetaspaceSize=512m
@@ -34,7 +34,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Decode keystore and write local runtime properties
+      - name: Decode the keystore and write local runtime properties
         run: |
           printf '%s' "${{ secrets.NUVIO_KEYSTORE_B64 }}" | base64 -d > nuviotv.jks
           cat > local.properties <<EOF
@@ -51,18 +51,19 @@ jobs:
           sed -i '/^[A-Z_]*=$/d' local.properties
           ls -la nuviotv.jks
 
-      - name: Assemble debug APK
-        run: |
-          ./gradlew :app:assembleFullDebug --max-workers=2 --stacktrace \
-            -Pandroid.injected.signing.store.file="$PWD/nuviotv.jks" \
-            -Pandroid.injected.signing.store.password="${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}" \
-            -Pandroid.injected.signing.key.alias="${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}" \
-            -Pandroid.injected.signing.key.password="${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}" \
-            -Pandroid.injected.build.abi=armeabi-v7a
+      - name: Assemble the per-ABI release APKs
+        run: ./gradlew :app:assembleFullRelease --max-workers=2 --stacktrace
 
-      - name: Upload debug APK
+      - name: Keep only the 32-bit APK
+        run: |
+          ls -la app/build/outputs/apk/full/release/
+          mkdir -p dist
+          cp app/build/outputs/apk/full/release/*armeabi-v7a*.apk dist/nuvio-tv-rewatch-armeabi-v7a.apk
+          ls -la dist/
+
+      - name: Upload the 32-bit APK
         uses: actions/upload-artifact@v4
         with:
-          name: tv-debug-apk
-          path: app/build/outputs/apk/**/*.apk
+          name: tv-release-apk-v7a
+          path: dist/*.apk
           if-no-files-found: error
