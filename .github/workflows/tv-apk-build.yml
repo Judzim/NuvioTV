@@ -52,7 +52,13 @@ jobs:
           ls -la nuviotv.jks
 
       - name: Assemble debug APK
-        run: ./gradlew :app:assembleFullDebug --max-workers=2 --stacktrace
+        run: |
+          ./gradlew :app:assembleFullDebug --max-workers=2 --stacktrace \
+            -Pandroid.injected.signing.store.file="$PWD/nuviotv.jks" \
+            -Pandroid.injected.signing.store.password="${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}" \
+            -Pandroid.injected.signing.key.alias="${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}" \
+            -Pandroid.injected.build.abi=armeabi-v7a
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
