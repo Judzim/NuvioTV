@@ -1,0 +1,56 @@
+name: Scratch TV debug APK
+
+on:
+  push:
+    branches:
+      - tv-apk-build
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scratch-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Assemble and upload the debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GRADLE_OPTS: -Dfile.encoding=UTF-8 -Xmx2560m -XX:MaxMetaspaceSize=768m
+      KOTLIN_DAEMON_JVMARGS: -Xmx1792m -XX:MaxMetaspaceSize=512m
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Write local runtime properties
+        run: |
+          cat > local.properties <<EOF
+          SIMKL_CLIENT_ID=${{ secrets.SIMKL_CLIENT_ID }}
+          SIMKL_APP_NAME=${{ secrets.SIMKL_APP_NAME }}
+          NUVIO_SUPABASE_URL=${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY=${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL=${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          EOF
+          sed -i '/^[A-Z_]*=$/d' local.properties
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleFullDebug --max-workers=2 --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-debug-apk
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
