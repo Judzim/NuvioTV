@@ -599,7 +599,9 @@ class SimklSyncEngineTest {
 
         val restored = json.decodeFromString<SimklSyncSnapshot>(payload)
 
-        assertEquals(2, restored.schemaVersion)
+        // The payload keeps the version it was stored with, so a snapshot from an older app stays
+        // recognizable in the file; the fields this update added come back as their defaults.
+        assertEquals(1, restored.schemaVersion)
         assertEquals("v1", restored.watermark)
         assertTrue(restored.rewatchRuns.isEmpty())
         assertTrue(restored.rewatchSessions.isEmpty())
