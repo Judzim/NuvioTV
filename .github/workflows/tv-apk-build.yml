@@ -51,6 +51,9 @@ jobs:
           sed -i '/^[A-Z_]*=$/d' local.properties
           ls -la nuviotv.jks
 
+      - name: Run the unit tests
+        run: ./gradlew :app:testFullDebugUnitTest --max-workers=2 --stacktrace
+
       - name: Assemble the per-ABI release APKs
         run: ./gradlew :app:assembleFullRelease --max-workers=2 --stacktrace
 
