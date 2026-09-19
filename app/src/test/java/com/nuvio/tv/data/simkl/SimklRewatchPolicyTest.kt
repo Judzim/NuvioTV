@@ -157,9 +157,16 @@ class SimklRewatchPolicyTest {
 
     @Test
     fun `a nonsense threshold falls back to the Simkl bar`() {
+        // A threshold that cannot be read is replaced by the bar itself, which is the percentage a
+        // stop has to reach for Simkl to count the watch at all.
         assertEquals(80.0, resolvedSimklCompletionPercent(Double.NaN, null), 0.0001)
-        assertEquals(80.0, resolvedSimklCompletionPercent(Double.POSITIVE_INFINITY, 93.0), 0.0001)
-        assertEquals(80.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 93.0), 0.0001)
+        assertEquals(80.0, resolvedSimklCompletionPercent(Double.POSITIVE_INFINITY, 79.0), 0.0001)
+        assertEquals(80.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 79.0), 0.0001)
+        // Only the threshold is replaced. The credits marker is where the content really ends, so a
+        // marker that survives the tolerance decides whatever the threshold was.
+        assertEquals(92.0, resolvedSimklCompletionPercent(Double.POSITIVE_INFINITY, 93.0), 0.0001)
+        assertEquals(92.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 93.0), 0.0001)
+        // A marker that cannot be read is dropped and the user bar decides instead.
         assertEquals(90.0, resolvedSimklCompletionPercent(90.0, Double.NaN), 0.0001)
         assertEquals(90.0, resolvedSimklCompletionPercent(90.0, Double.POSITIVE_INFINITY), 0.0001)
     }
