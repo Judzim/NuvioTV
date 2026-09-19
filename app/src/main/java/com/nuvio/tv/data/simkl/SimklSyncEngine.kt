@@ -38,11 +38,14 @@ class SimklSyncEngine internal constructor(
             current.playback
         }
         val now = nowEpochMs()
+        val rewatch = readRewatchRuns(current)
         return current.copy(
             watermark = activities.all,
             activities = activities,
             entries = entries,
             playback = playback,
+            rewatchRuns = rewatch.runs,
+            rewatchSessions = rewatch.sessions,
             lastSyncedAtEpochMs = now,
             lastCheckedAtEpochMs = now
         ).reconcileWatchedPlayback()
@@ -57,16 +60,50 @@ class SimklSyncEngine internal constructor(
         val playback = remote.fetchPlayback()
         val activities = remote.fetchActivities()
         val now = nowEpochMs()
+        val rewatch = readRewatchRuns(current = null)
         return SimklSyncSnapshot(
             isInitialized = true,
             watermark = activities.all,
             activities = activities,
             entries = entries.distinctBy(SimklLibraryEntry::stableKey),
             playback = playback,
+            rewatchRuns = rewatch.runs,
+            rewatchSessions = rewatch.sessions,
             lastSyncedAtEpochMs = now,
             lastCheckedAtEpochMs = now
         ).reconcileWatchedPlayback()
     }
+
+    /**
+     * Reads the rewatch sessions of the account, keeps them, and turns them into runs.
+     *
+     * A failed read keeps what the previous sync found: losing the network must not empty the
+     * Continue Watching cards the user is looking at.
+     */
+    private suspend fun readRewatchRuns(current: SimklSyncSnapshot?): SimklRewatchRead =
+        runCatching {
+            val sessions = remote.fetchRewatchSessions()
+            SimklRewatchRead(
+                runs = deriveSimklRewatchRuns(
+                    entries = sessions,
+                    minimumRunEpisodes = minimumRewatchRunEpisodes
+                ),
+                sessions = sessions
+            )
+        }.getOrElse {
+            SimklRewatchRead(
+                runs = current?.rewatchRuns.orEmpty(),
+                sessions = current?.rewatchSessions.orEmpty()
+            )
+        }
+
+    /*
+     * Rozdiel oproti mobile: mobile číta `simklRewatchNextUpMode` z `TrackingSettingsRepository`.
+     * TV taký `object` repozitár nemá a kľúče v `TraktSettingsDataStore` pribudnú až v kroku 3.10,
+     * takže sa tu číta predvolený režim. Keď kľúč pribudne, nahradí sa len tento getter.
+     */
+    private val minimumRewatchRunEpisodes: Int?
+        get() = SimklRewatchNextUpMode.Default.minimumRunEpisodes
 }
 
 fun mergeSimklDelta(
