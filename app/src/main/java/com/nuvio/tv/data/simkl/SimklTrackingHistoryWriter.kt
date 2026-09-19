@@ -25,7 +25,7 @@ class SimklTrackingHistoryWriter @Inject constructor(
         // A mark without episode coordinates describes a whole series, and Simkl answers such a mark by
         // marking every episode of the show watched. Only films may travel without coordinates; the
         // episodes of a whole-series action are reported one by one by the caller anyway.
-        val pushableItems = items.filterNot(TrackingHistoryItem::isWholeSeriesMark)
+        val pushableItems = simklHistoryPushItems(items)
         if (pushableItems.isEmpty()) return TrackingMutationResult(0)
         syncRepository.ensureLoaded()
         val snapshot = syncRepository.state.value.snapshot
@@ -61,6 +61,9 @@ class SimklTrackingHistoryWriter @Inject constructor(
  * without coordinates. An anime mark is dropped too: without more metadata the app cannot tell an
  * anime film from an anime series.
  */
+internal fun simklHistoryPushItems(items: Collection<TrackingHistoryItem>): List<TrackingHistoryItem> =
+    items.filterNot(TrackingHistoryItem::isWholeSeriesMark)
+
 private fun TrackingHistoryItem.isWholeSeriesMark(): Boolean =
     media.episode == null && media.kind.name.lowercase() !in MOVIE_LIKE_WATCHED_TYPES
 
