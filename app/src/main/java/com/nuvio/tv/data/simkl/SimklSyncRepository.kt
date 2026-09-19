@@ -165,6 +165,80 @@ class SimklSyncRepository @Inject constructor(
         }
     }
 
+    /**
+     * Stores the runs the account's rewatch sessions make, so a rewatch the user just confirmed shows
+     * up in Continue Watching at once instead of after the next sync. The sessions come from the
+     * caller, which read them to answer whether the write landed.
+     */
+    internal suspend fun adoptRewatchSessions(sessions: List<SimklLibraryEntry>) =
+        withContext(Dispatchers.IO) {
+            val runs = runCatching {
+                deriveSimklRewatchRuns(
+                    entries = sessions,
+                    minimumRunEpisodes = minimumRewatchRunEpisodes
+                )
+            }.getOrElse { error ->
+                Log.w(TAG, "Could not read the runs out of the rewatch sessions", error)
+                return@withContext
+            }
+            ensureLoaded()
+            val profileId = profileManager.activeProfileId.value
+            val generation = profileGeneration
+            snapshotMutex.withLock {
+                if (!isCurrent(profileId, generation)) return@withLock
+                val current = _state.value
+                if (
+                    current.snapshot.rewatchRuns == runs &&
+                    current.snapshot.rewatchSessions == sessions
+                ) {
+                    return@withLock
+                }
+                val snapshot = current.snapshot.copy(rewatchRuns = runs, rewatchSessions = sessions)
+                val projection = buildProjection(snapshot)
+                storage.save(profileId, encodeSnapshot(snapshot))
+                if (isCurrent(profileId, generation)) {
+                    _projection.value = projection
+                    _state.value = current.copy(snapshot = snapshot)
+                }
+            }
+        }
+
+    /**
+     * Re-derives the runs after the user changed how much of a rewatch should be offered.
+     *
+     * The sessions of the last read are kept on the snapshot, so the row follows the setting at once
+     * instead of at the next sync, and it works offline. With nothing read yet there is nothing to
+     * re-derive, and the next sync picks the setting up on its own.
+     */
+    internal suspend fun refreshRewatchRuns() = withContext(Dispatchers.IO) {
+        ensureLoaded()
+        val sessions = _state.value.snapshot.rewatchSessions
+        if (sessions.isEmpty()) return@withContext
+        val runs = runCatching {
+            deriveSimklRewatchRuns(
+                entries = sessions,
+                minimumRunEpisodes = minimumRewatchRunEpisodes
+            )
+        }.getOrElse { error ->
+            Log.w(TAG, "Could not re-derive the runs after a setting change", error)
+            return@withContext
+        }
+        val profileId = profileManager.activeProfileId.value
+        val generation = profileGeneration
+        snapshotMutex.withLock {
+            if (!isCurrent(profileId, generation)) return@withLock
+            val current = _state.value
+            if (current.snapshot.rewatchRuns == runs) return@withLock
+            val snapshot = current.snapshot.copy(rewatchRuns = runs)
+            val projection = buildProjection(snapshot)
+            storage.save(profileId, encodeSnapshot(snapshot))
+            if (isCurrent(profileId, generation)) {
+                _projection.value = projection
+                _state.value = current.copy(snapshot = snapshot)
+            }
+        }
+    }
+
     private suspend fun loadProfile(profileId: Int) = loadMutex.withLock {
         if (loadedProfileId == profileId) return@withLock
         val snapshot = storage.load(profileId)
@@ -211,7 +285,9 @@ class SimklSyncRepository @Inject constructor(
         )
         val projection = if (
             merged.entries === previous.snapshot.entries &&
-            merged.playback === previous.snapshot.playback
+            merged.playback === previous.snapshot.playback &&
+            merged.rewatchRuns == previous.snapshot.rewatchRuns &&
+            merged.rewatchSessions == previous.snapshot.rewatchSessions
         ) {
             _projection.value
         } else {
@@ -246,6 +322,14 @@ class SimklSyncRepository @Inject constructor(
             }
         }
     }
+
+    /*
+     * Rozdiel oproti mobile: mobile číta `simklRewatchNextUpMode` z `TrackingSettingsRepository`.
+     * TV taký `object` repozitár nemá a kľúče v `TraktSettingsDataStore` pribudnú až v kroku 3.10,
+     * takže sa tu číta predvolený režim. Keď kľúč pribudne, nahradí sa len tento getter.
+     */
+    private val minimumRewatchRunEpisodes: Int?
+        get() = SimklRewatchNextUpMode.Default.minimumRunEpisodes
 
     private suspend fun buildProjection(snapshot: SimklSyncSnapshot): SimklSnapshotProjection =
         withContext(Dispatchers.Default) { SimklSnapshotProjection.create(snapshot) }
