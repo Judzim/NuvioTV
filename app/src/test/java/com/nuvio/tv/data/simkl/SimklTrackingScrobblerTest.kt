@@ -218,6 +218,52 @@ class SimklTrackingScrobblerTest {
     }
 
     @Test
+    fun `the credits marker from the player decides a stop above the stored threshold`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklWatchedThresholdPercent(95)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 90.0))
+
+        // Marker hovori, ze obsah konci na 91 percent, s toleranciou jedno percento je to 90. Prehratie
+        // na 90 percentach je teda dokoncene aj pri prahu 95, takze stop sa posle ako stop.
+        scrobbler.scrobble(
+            TrackingScrobbleAction.STOP,
+            event(progressPercent = 90.0, contentEndPercent = 91.0)
+        )
+
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.STOP,
+                event = any(),
+                recordRewatch = false,
+                completionThresholdPercent = 90.0
+            )
+        }
+    }
+
+    @Test
+    fun `a marker under what Simkl counts cannot move the threshold`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklWatchedThresholdPercent(95)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 90.0))
+
+        // Marker na 80.5 percenta je po tolerancii pod tym, co Simkl vobec pocita, takze sa pouzit
+        // neda a rozhoduje prah pouzivatela: 90 percent je pauza, nie dokoncene prehratie.
+        scrobbler.scrobble(
+            TrackingScrobbleAction.STOP,
+            event(progressPercent = 90.0, contentEndPercent = 80.5)
+        )
+
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.PAUSE,
+                event = any(),
+                recordRewatch = false,
+                completionThresholdPercent = 95.0
+            )
+        }
+    }
+
+    @Test
     fun `a stop under the threshold is reported as a pause`() {
         assertEquals(
             TrackingScrobbleAction.PAUSE,
@@ -268,7 +314,7 @@ class SimklTrackingScrobblerTest {
         } returns result
     }
 
-    private fun event(progressPercent: Double) = TrackingScrobbleEvent(
+    private fun event(progressPercent: Double, contentEndPercent: Double? = null) = TrackingScrobbleEvent(
         media = TrackingMediaReference(
             kind = TrackingMediaKind.SHOW,
             title = "Dark",
@@ -276,7 +322,8 @@ class SimklTrackingScrobblerTest {
             ids = TrackingExternalIds(imdb = "tt5753856"),
             episode = TrackingEpisode(season = 2, number = 7)
         ),
-        progressPercent = progressPercent
+        progressPercent = progressPercent,
+        contentEndPercent = contentEndPercent
     )
 
     private fun scrobbleResult(

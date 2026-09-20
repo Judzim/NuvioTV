@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Gde obsah konci pre tracker: kde sa nacita marker konca obsahu a kedy sa odmietne.
+ * Kde obsah konci pre tracker: kde sa nacita marker konca obsahu a kedy sa odmietne.
  *
  * Hodnota je percento, nie cas, lebo to je cislo, ktore porovnava tracker aj lokalny riadok
  * Continue Watching, a je to ta ista hodnota, aku mobile cita zo `SkipModels.kt`.
