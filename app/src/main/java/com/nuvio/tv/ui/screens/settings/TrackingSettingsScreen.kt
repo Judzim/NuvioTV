@@ -613,16 +613,26 @@ internal fun TrackingSettingsOverview(
                                     onClick = onAnimeIdClick,
                                     modifier = Modifier.testTag("tracking_simkl_anime_id")
                                 )
-                                SettingsSliderRow(
+                                /*
+                                 * Prah je `SliderSettingsItem`, teda ten istý riadok, akým sa
+                                 * nastavuje časový limit výberu streamu: bez plusu a mínusu
+                                 * (`showStepper = false`), lebo na diaľkovom ovládači ich šípky
+                                 * zastupujú, a s krokom 1, takže sa dá zastaviť na každom celom
+                                 * percente v rozsahu a nie len na predvolených krokoch.
+                                 */
+                                SliderSettingsItem(
+                                    icon = null,
                                     title = stringResource(R.string.settings_tracking_completion_title),
                                     subtitle = stringResource(R.string.settings_tracking_completion_subtitle),
                                     value = trackingState.simklWatchedThresholdPercent,
-                                    valueLabel = stringResource(
+                                    valueText = stringResource(
                                         R.string.settings_tracking_completion_value,
                                         trackingState.simklWatchedThresholdPercent.toString()
                                     ),
-                                    minimum = SIMKL_WATCHED_THRESHOLD_MIN_PERCENT,
-                                    maximum = SIMKL_WATCHED_THRESHOLD_MAX_PERCENT,
+                                    minValue = SIMKL_WATCHED_THRESHOLD_MIN_PERCENT,
+                                    maxValue = SIMKL_WATCHED_THRESHOLD_MAX_PERCENT,
+                                    step = 1,
+                                    showStepper = false,
                                     onValueChange = onWatchedThresholdChange,
                                     modifier = Modifier.testTag(TrackingSettingsTestTags.WATCHED_THRESHOLD)
                                 )

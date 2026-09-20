@@ -4,7 +4,6 @@ package com.nuvio.tv.ui.screens.settings
 
 import com.nuvio.tv.ui.theme.NuvioTheme
 
-import android.view.KeyEvent
 import androidx.annotation.RawRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -50,29 +49,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -100,7 +92,6 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.theme.NuvioComponents
 import com.nuvio.tv.ui.theme.NuvioRadii
-import kotlin.math.roundToInt
 
 internal val SettingsContainerRadius = NuvioComponents.tokens.settings.containerRadius
 internal val SettingsPillRadius = NuvioRadii.tokens.full
@@ -914,193 +905,6 @@ internal fun SettingsActionRow(
                 contentDescription = null,
                 tint = NuvioTheme.colors.TextTertiary.copy(alpha = contentAlpha),
                 modifier = Modifier.size(18.dp)
-            )
-        }
-    }
-}
-
-/** How many repeats of a held direction key pass before a slider starts to move faster. */
-internal const val SettingsSliderAcceleratedRepeatCount = 6
-
-/** How many steps one press moves once a key is held. */
-internal const val SettingsSliderAcceleratedStepMultiplier = 3
-
-/**
- * Where one press of a direction key takes a slider.
- *
- * A slider is the only settings row that moves without a click, so the arithmetic lives here instead
- * of inside the composable: one press moves one [step], and a key held past
- * [SettingsSliderAcceleratedRepeatCount] repeats moves [SettingsSliderAcceleratedStepMultiplier]
- * steps at a time, which is what makes crossing a wide range on a remote bearable. The result is
- * always inside the range, so a press at either end stays where it is.
- */
-internal fun settingsSliderValueAfterKeyPress(
-    value: Int,
-    direction: Int,
-    minimum: Int,
-    maximum: Int,
-    step: Int = 1,
-    repeatCount: Int = 0
-): Int {
-    val clamped = value.coerceIn(minimum, maximum)
-    if (direction == 0 || step <= 0 || maximum <= minimum) return clamped
-    val increment = if (repeatCount > SettingsSliderAcceleratedRepeatCount) {
-        step * SettingsSliderAcceleratedStepMultiplier
-    } else {
-        step
-    }
-    return (clamped + direction * increment).coerceIn(minimum, maximum)
-}
-
-/**
- * A settings row whose value is picked with the left and right keys, one step per press.
- *
- * Zovšeobecnený `ColorChannelSlider`, ktorý doteraz žil ako privátna funkcia v `ThemeColorPicker`:
- * riadok dizajnového systému pre prah, ktorý si vyžaduje rewatch. Farbový výber si naďalej posiela
- * vlastný prechod v [brush], prah ho nechá prázdny a dostane farby témy.
- *
- * Toto je jediný riadok dizajnového systému, ktorý sa hýbe bez kliknutia: hodnota sa posúva na
- * stlačenie šípky, takže riadok drží fokus sám a šípky sa nesmú preniesť na susedný riadok. Preto
- * `onPreviewKeyEvent` na karte a `setProgress` v sémantike, aby sa hodnota dala nastaviť aj inak.
- */
-@Composable
-internal fun SettingsSliderRow(
-    title: String,
-    value: Int,
-    onValueChange: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-    subtitle: String? = null,
-    valueLabel: String = value.toString(),
-    minimum: Int = 0,
-    maximum: Int = 100,
-    step: Int = 1,
-    brush: Brush? = null,
-    onFocused: () -> Unit = {},
-    enabled: Boolean = true
-) {
-    val contentAlpha = if (enabled) 1f else 0.4f
-    var isFocused by remember { mutableStateOf(false) }
-    val zen = isFlatSettingsStyle()
-    val trackBrush = brush ?: Brush.horizontalGradient(
-        listOf(NuvioTheme.colors.Border, NuvioTheme.colors.Primary)
-    )
-    val span = (maximum - minimum).coerceAtLeast(1)
-    val fraction = ((value - minimum).toFloat() / span.toFloat()).coerceIn(0f, 1f)
-
-    Card(
-        onClick = {},
-        modifier = modifier
-            .padding(top = NuvioTheme.spacing.xxs, bottom = NuvioTheme.spacing.xxs)
-            .fillMaxWidth()
-            .heightIn(min = 62.dp)
-            .focusProperties { canFocus = enabled }
-            .onPreviewKeyEvent { event ->
-                if (!enabled) return@onPreviewKeyEvent false
-                val native = event.nativeKeyEvent
-                val direction = when (native.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT -> -1
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> 1
-                    else -> return@onPreviewKeyEvent false
-                }
-                if (native.action == KeyEvent.ACTION_DOWN) {
-                    onValueChange(
-                        settingsSliderValueAfterKeyPress(
-                            value = value,
-                            direction = direction,
-                            minimum = minimum,
-                            maximum = maximum,
-                            step = step,
-                            repeatCount = native.repeatCount
-                        )
-                    )
-                }
-                true
-            }
-            .semantics {
-                if (!enabled) disabled()
-                contentDescription = title
-                progressBarRangeInfo = ProgressBarRangeInfo(
-                    current = value.toFloat(),
-                    range = minimum.toFloat()..maximum.toFloat()
-                )
-                setProgress { target ->
-                    onValueChange(target.roundToInt().coerceIn(minimum, maximum))
-                    true
-                }
-            }
-            .onFocusChanged { state ->
-                val nowFocused = state.isFocused
-                if (isFocused != nowFocused) {
-                    isFocused = nowFocused
-                    if (nowFocused) onFocused()
-                }
-            },
-        colors = CardDefaults.colors(
-            containerColor = if (zen) Color.Transparent else NuvioTheme.colors.Background,
-            focusedContainerColor = if (zen) settingsFocusFillColor() else NuvioTheme.colors.Background
-        ),
-        border = if (zen) {
-            CardDefaults.border(border = Border.None, focusedBorder = Border.None)
-        } else {
-            CardDefaults.border(
-                focusedBorder = Border(
-                    border = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs, alpha = contentAlpha),
-                    shape = RoundedCornerShape(SettingsPillRadius)
-                )
-            )
-        },
-        shape = CardDefaults.shape(settingsRowShape()),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = NuvioTheme.spacing.md),
-            verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioTheme.colors.TextPrimary.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = valueLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuvioTheme.colors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 1
-                )
-            }
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioTheme.colors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .drawWithContent {
-                        drawContent()
-                        val radius = 6.dp.toPx()
-                        val x = radius + (size.width - radius * 2) * fraction
-                        drawCircle(Color.Black.copy(alpha = 0.6f), radius + 1.dp.toPx(), Offset(x, size.height / 2))
-                        drawCircle(Color.White, radius, Offset(x, size.height / 2))
-                    }
-                    .clip(CircleShape)
-                    .background(trackBrush)
             )
         }
     }
