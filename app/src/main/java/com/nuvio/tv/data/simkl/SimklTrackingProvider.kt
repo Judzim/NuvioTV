@@ -23,7 +23,8 @@ import kotlinx.coroutines.flow.stateIn
 class SimklTrackingScrobbler @Inject constructor(
     private val authRepository: SimklAuthRepository,
     private val syncRepository: SimklSyncRepository,
-    private val mutationService: SimklMutationService
+    private val mutationService: SimklMutationService,
+    private val rewatchPromptRepository: SimklRewatchPromptRepository
 ) : TrackingScrobbler {
     override val providerId = TrackingProviderId.SIMKL
 
@@ -54,19 +55,114 @@ class SimklTrackingScrobbler @Inject constructor(
             TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
             "simkl adapter enriched action=${action.wireValue} ${enrichedEvent.scrobbleDiagnosticSummary()}"
         )
-        val result = mutationService.scrobble(
-            action = action,
-            event = enrichedEvent
+        val mode = rewatchMode
+        val accountType = authRepository.state.value.accountType
+        // Jedno číslo pre celú cestu: pauzovanie, stop, rewatch brány aj lokálny commit. Marker
+        // konca obsahu z prehrávača (`TrackingScrobbleEvent.contentEndPercent`) dodáva krok 3.13;
+        // kým tam nie je, rozhoduje prah používateľa, rovnako ako pre externý prehrávač, ktorý
+        // marker nemá.
+        val completionThresholdPercent = resolvedSimklCompletionPercent(
+            userThresholdPercent = watchedThresholdPercent.toDouble(),
+            contentEndPercent = null
         )
-        if (action != TrackingScrobbleAction.START) {
+        // Playback zastavený pod prahom je pre Simkl pauza: ako stop by si účet uplatnil vlastné
+        // pravidlo 80 percent a titul by označil za pozretý aj tak, hoci prah používateľa je
+        // vyššie. Tá istá akcia potom platí pre rewatch bránu, pre otázku aj pre lokálny commit.
+        val reportingAction = simklReportingAction(
+            action = action,
+            progressPercent = enrichedEvent.progressPercent,
+            completionThresholdPercent = completionThresholdPercent
+        )
+        val recordRewatch = shouldRecordSimklRewatchOnStop(
+            mode = mode,
+            accountType = accountType,
+            action = reportingAction,
+            progressPercent = enrichedEvent.progressPercent,
+            completionThresholdPercent = completionThresholdPercent
+        )
+        val result = mutationService.scrobble(
+            action = reportingAction,
+            event = enrichedEvent,
+            recordRewatch = recordRewatch,
+            completionThresholdPercent = completionThresholdPercent
+        )
+        // Predošlé pozretie sa musí prečítať pred commitom, inak sa playback javí ako opakované
+        // pozretie sám seba. Otázku môže vyrobiť len stop.
+        val priorWatch = if (reportingAction == TrackingScrobbleAction.STOP) {
+            syncRepository.state.value.snapshot.priorWatchForScrobble(result)
+        } else {
+            SimklPriorWatch.None
+        }
+        if (reportingAction != TrackingScrobbleAction.START) {
             syncRepository.commitScrobble(result)
+        }
+        if (recordRewatch || result.rewatchStatus != null) {
+            Log.i(
+                TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
+                "simkl rewatch action=${reportingAction.wireValue} status=" +
+                    "${result.rewatchStatus?.name?.lowercase() ?: "none"} " +
+                    "rewatching=${result.rewatchId != null}"
+            )
+        }
+        val nowEpochMs = System.currentTimeMillis()
+        val watchedAtEpochMs = result.watchedAt?.let(::parseSimklUtcEpochMs) ?: nowEpochMs
+        val askToRecord = shouldPromptSimklRewatch(
+            mode = mode,
+            accountType = accountType,
+            action = reportingAction,
+            outcome = result.outcome,
+            progressPercent = result.progress,
+            priorWatch = priorWatch,
+            nowEpochMs = nowEpochMs,
+            completionThresholdPercent = completionThresholdPercent
+        )
+        if (askToRecord) {
+            rewatchPromptRepository.request(
+                RewatchPrompt(
+                    media = enrichedEvent.media,
+                    watchedAtEpochMs = watchedAtEpochMs
+                )
+            )
         }
         Log.d(
             TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
-            "simkl adapter complete action=${action.wireValue} ${enrichedEvent.scrobbleDiagnosticSummary()}"
+            "simkl adapter complete action=${reportingAction.wireValue} " +
+                enrichedEvent.scrobbleDiagnosticSummary()
         )
     }
+
+    /*
+     * Rozdiel oproti mobile: mobile číta `simklRewatchMode` a `simklWatchedThresholdPercent`
+     * z `TrackingSettingsRepository`. TV tie kľúče v `TraktSettingsDataStore` pribudnú až v kroku
+     * 3.10, takže sa tu číta predvolený režim a predvolený prah, rovnako ako
+     * `minimumRewatchRunEpisodes` v `SimklSyncRepository.kt` a `SimklSyncEngine.kt`. Keď kľúče
+     * pribudnú, nahradia sa len tieto gettre (čítanie je `suspend`, `scrobble` už `suspend` je).
+     */
+    private val rewatchMode: SimklRewatchMode
+        get() = SimklRewatchMode.Default
+
+    private val watchedThresholdPercent: Int
+        get() = SIMKL_WATCHED_THRESHOLD_DEFAULT_PERCENT
 }
+
+/**
+ * The action Simkl is actually told about.
+ *
+ * A playback the user stopped below the completion threshold is reported as a pause, because a stop
+ * there would have Simkl apply its own 80 percent rule and mark the title watched anyway, while the
+ * user's own number says the playback did not finish. The same action is then what the rewatch gate,
+ * the prompt and the local commit are decided with.
+ */
+internal fun simklReportingAction(
+    action: TrackingScrobbleAction,
+    progressPercent: Double,
+    completionThresholdPercent: Double
+): TrackingScrobbleAction =
+    if (action == TrackingScrobbleAction.STOP && progressPercent < completionThresholdPercent) {
+        TrackingScrobbleAction.PAUSE
+    } else {
+        action
+    }
 
 @Singleton
 class SimklTrackingProvider @Inject constructor(
