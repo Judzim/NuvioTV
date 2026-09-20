@@ -10,12 +10,14 @@ import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import com.nuvio.tv.core.tracking.TrackingScrobbler
 import com.nuvio.tv.core.tracking.scrobbleDiagnosticSummary
+import com.nuvio.tv.data.local.TraktSettingsDataStore
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -24,7 +26,8 @@ class SimklTrackingScrobbler @Inject constructor(
     private val authRepository: SimklAuthRepository,
     private val syncRepository: SimklSyncRepository,
     private val mutationService: SimklMutationService,
-    private val rewatchPromptRepository: SimklRewatchPromptRepository
+    private val rewatchPromptRepository: SimklRewatchPromptRepository,
+    private val settingsDataStore: TraktSettingsDataStore
 ) : TrackingScrobbler {
     override val providerId = TrackingProviderId.SIMKL
 
@@ -55,14 +58,14 @@ class SimklTrackingScrobbler @Inject constructor(
             TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
             "simkl adapter enriched action=${action.wireValue} ${enrichedEvent.scrobbleDiagnosticSummary()}"
         )
-        val mode = rewatchMode
+        val mode = rewatchMode()
         val accountType = authRepository.state.value.accountType
         // Jedno číslo pre celú cestu: pauzovanie, stop, rewatch brány aj lokálny commit. Marker
         // konca obsahu z prehrávača (`TrackingScrobbleEvent.contentEndPercent`) dodáva krok 3.13;
         // kým tam nie je, rozhoduje prah používateľa, rovnako ako pre externý prehrávač, ktorý
         // marker nemá.
         val completionThresholdPercent = resolvedSimklCompletionPercent(
-            userThresholdPercent = watchedThresholdPercent.toDouble(),
+            userThresholdPercent = watchedThresholdPercent().toDouble(),
             contentEndPercent = null
         )
         // Playback zastavený pod prahom je pre Simkl pauza: ako stop by si účet uplatnil vlastné
@@ -133,16 +136,17 @@ class SimklTrackingScrobbler @Inject constructor(
 
     /*
      * Rozdiel oproti mobile: mobile číta `simklRewatchMode` a `simklWatchedThresholdPercent`
-     * z `TrackingSettingsRepository`. TV tie kľúče v `TraktSettingsDataStore` pribudnú až v kroku
-     * 3.10, takže sa tu číta predvolený režim a predvolený prah, rovnako ako
-     * `minimumRewatchRunEpisodes` v `SimklSyncRepository.kt` a `SimklSyncEngine.kt`. Keď kľúče
-     * pribudnú, nahradia sa len tieto gettre (čítanie je `suspend`, `scrobble` už `suspend` je).
+     * z `TrackingSettingsRepository`. TV taký `object` repozitár nemá, preto sa obe hodnoty čítajú
+     * z `TraktSettingsDataStore` (kľúče pribudli v kroku 3.10). `scrobble` je `suspend`, takže
+     * čítanie je jeden `first()` na začiatku cesty, rovnako ako `minimumRewatchRunEpisodes`
+     * v `SimklSyncRepository.kt` a `SimklSyncEngine.kt`. Nastavenie z obrazovky tak mení správanie
+     * pri najbližšom scrobble.
      */
-    private val rewatchMode: SimklRewatchMode
-        get() = SimklRewatchMode.Default
+    private suspend fun rewatchMode(): SimklRewatchMode =
+        settingsDataStore.simklRewatchMode.first()
 
-    private val watchedThresholdPercent: Int
-        get() = SIMKL_WATCHED_THRESHOLD_DEFAULT_PERCENT
+    private suspend fun watchedThresholdPercent(): Int =
+        settingsDataStore.simklWatchedThresholdPercent.first()
 }
 
 /**

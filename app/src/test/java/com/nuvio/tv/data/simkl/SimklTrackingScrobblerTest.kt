@@ -1,11 +1,15 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.TestPreferencesStore
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingEpisode
 import com.nuvio.tv.core.tracking.TrackingExternalIds
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
+import com.nuvio.tv.data.local.ProfileDataStoreFactory
+import com.nuvio.tv.data.local.TraktSettingsDataStore
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -30,11 +34,27 @@ class SimklTrackingScrobblerTest {
     private val mutationService = mockk<SimklMutationService>(relaxed = true)
     private val promptRepository = mockk<SimklRewatchPromptRepository>(relaxed = true)
 
+    /*
+     * Režim rewatchu a prah dokončenia číta scrobbler z `TraktSettingsDataStore`, takže testy mu
+     * dávajú skutočný store nad pamäťovým preferences store. Nič sa do neho nepíše, takže platia
+     * dokumentované defaulty, rovnako ako predtým.
+     */
+    private val settingsPreferences = TestPreferencesStore()
+    private val settingsDataStore = TraktSettingsDataStore(
+        mockk<ProfileDataStoreFactory>().also { factory ->
+            every { factory.get(any(), any()) } returns settingsPreferences
+        },
+        mockk<ProfileManager>().also { manager ->
+            every { manager.activeProfileId } returns MutableStateFlow(1)
+        }
+    )
+
     private val scrobbler = SimklTrackingScrobbler(
         authRepository = authRepository,
         syncRepository = syncRepository,
         mutationService = mutationService,
-        rewatchPromptRepository = promptRepository
+        rewatchPromptRepository = promptRepository,
+        settingsDataStore = settingsDataStore
     )
 
     @Test
@@ -134,10 +154,67 @@ class SimklTrackingScrobblerTest {
 
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
 
-        // Rozdiel oproti mobile: režim rewatchu sa číta z `TraktSettingsDataStore`, ktorý tie kľúče
-        // dostane až v kroku 3.10. Do vtedy je režim predvolený (OFF), takže otázka nemá čo spýtať
+        // V store nie je nič, takže režim je dokumentovaný default (OFF): otázka nemá čo spýtať
         // a nikto nič nezapisuje bez potvrdenia.
         verify(exactly = 0) { promptRepository.request(any()) }
+    }
+
+    @Test
+    fun `the stored rewatch mode lets a finished stop ask Simkl for a rewatch`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.AUTOMATIC)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 95.0))
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
+
+        // Režim z nastavení je to, čo povoľuje `allow_rewatch` na stope; s defaultom OFF by tu bolo
+        // `recordRewatch = false`.
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.STOP,
+                event = any(),
+                recordRewatch = true,
+                completionThresholdPercent = 80.0
+            )
+        }
+    }
+
+    @Test
+    fun `the stored threshold moves where a stop is reported as a pause`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklWatchedThresholdPercent(95)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 90.0))
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 90.0))
+
+        // Prah používateľa je 95, takže 90 percent ešte nie je dokončené pozretie: stop z tohto
+        // miesta by Simkl označil za pozreté svojím vlastným pravidlom 80 percent.
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.PAUSE,
+                event = any(),
+                recordRewatch = false,
+                completionThresholdPercent = 95.0
+            )
+        }
+    }
+
+    @Test
+    fun `a threshold stored out of range is read back inside the range`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklWatchedThresholdPercent(100)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 94.0))
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 94.0))
+
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.PAUSE,
+                event = any(),
+                recordRewatch = false,
+                completionThresholdPercent = 95.0
+            )
+        }
     }
 
     @Test

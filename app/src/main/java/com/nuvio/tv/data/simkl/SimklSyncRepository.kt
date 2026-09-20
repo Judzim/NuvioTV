@@ -3,6 +3,7 @@ package com.nuvio.tv.data.simkl
 import android.util.Log
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingRefreshIntent
+import com.nuvio.tv.data.local.TraktSettingsDataStore
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -12,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,7 +27,8 @@ class SimklSyncRepository @Inject constructor(
     private val storage: SimklSyncStorage,
     private val authRepository: SimklAuthRepository,
     private val authStorage: SimklAuthStorage,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val settingsDataStore: TraktSettingsDataStore
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -175,7 +178,7 @@ class SimklSyncRepository @Inject constructor(
             val runs = runCatching {
                 deriveSimklRewatchRuns(
                     entries = sessions,
-                    minimumRunEpisodes = minimumRewatchRunEpisodes
+                    minimumRunEpisodes = minimumRewatchRunEpisodes()
                 )
             }.getOrElse { error ->
                 Log.w(TAG, "Could not read the runs out of the rewatch sessions", error)
@@ -217,7 +220,7 @@ class SimklSyncRepository @Inject constructor(
         val runs = runCatching {
             deriveSimklRewatchRuns(
                 entries = sessions,
-                minimumRunEpisodes = minimumRewatchRunEpisodes
+                minimumRunEpisodes = minimumRewatchRunEpisodes()
             )
         }.getOrElse { error ->
             Log.w(TAG, "Could not re-derive the runs after a setting change", error)
@@ -325,11 +328,12 @@ class SimklSyncRepository @Inject constructor(
 
     /*
      * Rozdiel oproti mobile: mobile číta `simklRewatchNextUpMode` z `TrackingSettingsRepository`.
-     * TV taký `object` repozitár nemá a kľúče v `TraktSettingsDataStore` pribudnú až v kroku 3.10,
-     * takže sa tu číta predvolený režim. Keď kľúč pribudne, nahradí sa len tento getter.
+     * TV taký `object` repozitár nemá, preto sa režim číta z `TraktSettingsDataStore` (kľúče
+     * pribudli v kroku 3.10). Volajúci sú `suspend`, takže čítanie je jeden `first()`; režim sa
+     * premieta na počet epizód, ktoré reťaz rewatchu potrebuje, aby sa vôbec ukázala.
      */
-    private val minimumRewatchRunEpisodes: Int?
-        get() = SimklRewatchNextUpMode.Default.minimumRunEpisodes
+    private suspend fun minimumRewatchRunEpisodes(): Int? =
+        settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes
 
     private suspend fun buildProjection(snapshot: SimklSyncSnapshot): SimklSnapshotProjection =
         withContext(Dispatchers.Default) { SimklSnapshotProjection.create(snapshot) }
