@@ -70,8 +70,10 @@ fun SimklSyncSnapshot.toSimklWatchedProjection(): SimklWatchedProjection {
     )
 }
 
-fun SimklSyncSnapshot.toSimklProgressEntries(): List<WatchProgress> = playback
-    .mapNotNull { session -> session.toWatchProgress(entries) }
+fun SimklSyncSnapshot.toSimklProgressEntries(
+    completionThresholdFraction: Float? = null
+): List<WatchProgress> = playback
+    .mapNotNull { session -> session.toWatchProgress(entries, completionThresholdFraction) }
     .groupBy(::simklProgressKey)
     .mapNotNull { (_, candidates) -> candidates.maxByOrNull(WatchProgress::lastWatched) }
     .sortedByDescending(WatchProgress::lastWatched)
@@ -250,7 +252,8 @@ private fun SimklLibraryEntry.toWatchedItem(
 )
 
 internal fun SimklPlaybackSession.toWatchProgress(
-    libraryEntries: List<SimklLibraryEntry> = emptyList()
+    libraryEntries: List<SimklLibraryEntry> = emptyList(),
+    completionThresholdFraction: Float? = null
 ): WatchProgress? {
     val media = media ?: return null
     val parentId = media.canonicalContentId() ?: return null
@@ -300,7 +303,10 @@ internal fun SimklPlaybackSession.toWatchProgress(
         simklPlaybackId = id,
         trackingProviderId = TrackingProviderId.SIMKL.storageId,
         trackingProviderItemId = media.simklTrackingProviderItemId(),
-        trackingSourceUrl = buildSimklSourceUrl(mediaType, media)
+        trackingSourceUrl = buildSimklSourceUrl(mediaType, media),
+        // Riadok vie, s akým prahom bol nahlásený, takže čítanie a zápis sa nemôžu rozísť. Bez prahu
+        // (nastavenie sa nepodarilo prečítať) ostáva predvolených 80 percent zdroja.
+        completionThresholdFraction = completionThresholdFraction
     )
 }
 

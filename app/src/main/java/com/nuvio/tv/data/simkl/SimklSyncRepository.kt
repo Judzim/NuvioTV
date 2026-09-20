@@ -335,8 +335,29 @@ class SimklSyncRepository @Inject constructor(
     private suspend fun minimumRewatchRunEpisodes(): Int? =
         settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes
 
+    /*
+     * Rozdiel oproti mobile: mobile číta `simklWatchedThresholdPercent` z `TrackingSettingsRepository`.
+     * TV taký `object` repozitár pre UI stav nemá, preto sa prah číta z `TraktSettingsDataStore`,
+     * rovnako ako `simklRewatchNextUpMode`. Projekcia je `suspend`, takže čítanie je jeden `first()`;
+     * keď sa nastavenie nepodarí prečítať, prah sa neodovzdá a riadok prehrávania si ponechá
+     * predvolených 80 percent svojho zdroja. Rovnaké číslo tak rozhoduje na zápise (scrobbler) aj na
+     * čítaní (Continue Watching): epizóda zastavená na 86 percentách pri prahu 95 zostáva v riadku.
+     */
+    private suspend fun completionThresholdFraction(): Float? = try {
+        resolvedSimklCompletionFraction(settingsDataStore.simklWatchedThresholdPercent.first())
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Throwable) {
+        null
+    }
+
     private suspend fun buildProjection(snapshot: SimklSyncSnapshot): SimklSnapshotProjection =
-        withContext(Dispatchers.Default) { SimklSnapshotProjection.create(snapshot) }
+        withContext(Dispatchers.Default) {
+            SimklSnapshotProjection.create(
+                snapshot = snapshot,
+                completionThresholdFraction = completionThresholdFraction()
+            )
+        }
 
     private suspend fun decodeSnapshot(payload: String): SimklSyncSnapshot =
         withContext(Dispatchers.Default) { json.decodeFromString(payload) }
