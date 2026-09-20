@@ -898,7 +898,8 @@ internal fun SliderSettingsItem(
     subtitle: String? = null,
     onFocused: () -> Unit = {},
     enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showStepper: Boolean = true
 ) {
     val span = (maxValue - minValue).toFloat()
     val progress = if (span > 0f) (value - minValue).toFloat() / span else 0f
@@ -918,6 +919,7 @@ internal fun SliderSettingsItem(
             val newValue = (value + step).coerceAtMost(maxValue)
             if (newValue != value) onValueChange(newValue)
         },
+        showStepper = showStepper,
         onFocused = onFocused,
         modifier = modifier,
     )
@@ -976,6 +978,7 @@ private fun SliderSettingsItemLayout(
     onIncrease: () -> Unit,
     onFocused: () -> Unit,
     modifier: Modifier,
+    showStepper: Boolean = true,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
@@ -1076,41 +1079,21 @@ private fun SliderSettingsItemLayout(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                var decreaseFocused by remember { mutableStateOf(false) }
-                Card(
-                    onClick = { if (enabled) onDecrease() },
-                    modifier = Modifier
-                        .onFocusChanged { state ->
-                            val nowFocused = state.isFocused
-                            if (decreaseFocused != nowFocused) {
-                                decreaseFocused = nowFocused
-                                if (nowFocused) onFocused()
-                            }
-                        },
-                    colors = CardDefaults.colors(
-                        containerColor = NuvioTheme.colors.Background,
-                        focusedContainerColor = NuvioTheme.colors.Background
-                    ),
-                    border = CardDefaults.border(
-                        focusedBorder = Border(
-                            border = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs),
-                            shape = CircleShape
-                        )
-                    ),
-                    shape = CardDefaults.shape(shape = CircleShape),
-                    scale = CardDefaults.scale(focusedScale = 1.1f)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Remove,
-                            contentDescription = stringResource(R.string.cd_decrease),
-                            tint = (if (decreaseFocused) NuvioTheme.colors.OnPrimary else NuvioTheme.colors.TextPrimary).copy(alpha = contentAlpha),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                /*
+                 * Plus a mínus sú voliteľné: prah rewatchu si vyžiadal riadok bez nich, lebo na
+                 * diaľkovom ovládači posúvajú hodnotu šípky. Nastavenia, ktoré ich majú (napríklad
+                 * časový limit výberu streamu), vyzerajú ďalej rovnako, lebo `showStepper` je
+                 * predvolene `true`.
+                 */
+                if (showStepper) {
+                    SliderStepperButton(
+                        icon = Icons.Default.Remove,
+                        contentDescription = stringResource(R.string.cd_decrease),
+                        onClick = onDecrease,
+                        enabled = enabled,
+                        contentAlpha = contentAlpha,
+                        onFocused = onFocused
+                    )
                 }
 
                 Box(
@@ -1129,43 +1112,71 @@ private fun SliderSettingsItemLayout(
                     )
                 }
 
-                var increaseFocused by remember { mutableStateOf(false) }
-                Card(
-                    onClick = { if (enabled) onIncrease() },
-                    modifier = Modifier
-                        .onFocusChanged { state ->
-                            val nowFocused = state.isFocused
-                            if (increaseFocused != nowFocused) {
-                                increaseFocused = nowFocused
-                                if (nowFocused) onFocused()
-                            }
-                        },
-                    colors = CardDefaults.colors(
-                        containerColor = NuvioTheme.colors.Background,
-                        focusedContainerColor = NuvioTheme.colors.Background
-                    ),
-                    border = CardDefaults.border(
-                        focusedBorder = Border(
-                            border = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs),
-                            shape = CircleShape
-                        )
-                    ),
-                    shape = CardDefaults.shape(shape = CircleShape),
-                    scale = CardDefaults.scale(focusedScale = 1.1f)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = stringResource(R.string.cd_increase),
-                            tint = (if (increaseFocused) NuvioTheme.colors.OnPrimary else NuvioTheme.colors.TextPrimary).copy(alpha = contentAlpha),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                if (showStepper) {
+                    SliderStepperButton(
+                        icon = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.cd_increase),
+                        onClick = onIncrease,
+                        enabled = enabled,
+                        contentAlpha = contentAlpha,
+                        onFocused = onFocused
+                    )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The round plus or minus of a slider row, drawn the way this screen has always drawn it.
+ *
+ * Vytiahnuté zo `SliderSettingsItemLayout`, aby sa ten istý diel dal aj vynechať: prah rewatchu
+ * potrebuje riadok, ktorý plus a mínus nemá, lebo na diaľkovom ovládači posúvajú hodnotu šípky.
+ */
+@Composable
+private fun SliderStepperButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    contentAlpha: Float,
+    onFocused: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = { if (enabled) onClick() },
+        modifier = Modifier
+            .onFocusChanged { state ->
+                val nowFocused = state.isFocused
+                if (isFocused != nowFocused) {
+                    isFocused = nowFocused
+                    if (nowFocused) onFocused()
+                }
+            },
+        colors = CardDefaults.colors(
+            containerColor = NuvioTheme.colors.Background,
+            focusedContainerColor = NuvioTheme.colors.Background
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs),
+                shape = CircleShape
+            )
+        ),
+        shape = CardDefaults.shape(shape = CircleShape),
+        scale = CardDefaults.scale(focusedScale = 1.1f)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(38.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = (if (isFocused) NuvioTheme.colors.OnPrimary else NuvioTheme.colors.TextPrimary).copy(alpha = contentAlpha),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
