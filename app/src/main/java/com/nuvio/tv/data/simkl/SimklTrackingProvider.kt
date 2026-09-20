@@ -61,12 +61,12 @@ class SimklTrackingScrobbler @Inject constructor(
         val mode = rewatchMode()
         val accountType = authRepository.state.value.accountType
         // Jedno číslo pre celú cestu: pauzovanie, stop, rewatch brány aj lokálny commit. Marker
-        // konca obsahu z prehrávača (`TrackingScrobbleEvent.contentEndPercent`) dodáva krok 3.13;
-        // kým tam nie je, rozhoduje prah používateľa, rovnako ako pre externý prehrávač, ktorý
-        // marker nemá.
+        // konca obsahu dodáva prehrávač (`TrackingScrobbleEvent.contentEndPercent`), takže prehratie,
+        // ktoré došlo na titulky, je dokončené aj pri vyššom prahu používateľa. Externý prehrávač
+        // a start marker nemajú, tam rozhoduje prah používateľa sám.
         val completionThresholdPercent = resolvedSimklCompletionPercent(
             userThresholdPercent = watchedThresholdPercent().toDouble(),
-            contentEndPercent = null
+            contentEndPercent = enrichedEvent.contentEndPercent
         )
         // Playback zastavený pod prahom je pre Simkl pauza: ako stop by si účet uplatnil vlastné
         // pravidlo 80 percent a titul by označil za pozretý aj tak, hoci prah používateľa je

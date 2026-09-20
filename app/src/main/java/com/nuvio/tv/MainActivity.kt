@@ -152,6 +152,7 @@ import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.ThemeDataStore
 import com.nuvio.tv.data.repository.MemberAccessRepository
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
+import com.nuvio.tv.data.simkl.SimklRewatchPromptRepository
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.CustomThemeColors
@@ -172,6 +173,7 @@ import com.nuvio.tv.ui.components.NuvioScrollDefaults
 import com.nuvio.tv.ui.components.BrandWordmark
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.ProfileAvatarCircle
+import com.nuvio.tv.ui.components.RewatchPromptOverlay
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
 import com.nuvio.tv.ui.membership.LocalMemberAccess
@@ -310,6 +312,14 @@ open class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var deepLinkHandler: DeepLinkHandler
+
+    /*
+     * Držaný v aktivite, nie v obrazovke prehrávača: otázka na rewatch musí prežiť navigáciu, rovnako
+     * ako to mobile drží v `MainAppContent.kt`. `SimklRewatchPromptRepository` je `@Singleton` a nie
+     * `@HiltViewModel`, takže sa získava injektovaním do aktivity a nie cez `hiltViewModel`.
+     */
+    @Inject
+    lateinit var rewatchPromptRepository: SimklRewatchPromptRepository
 
     private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
     private val pendingLaunchIntent = MutableStateFlow<Intent?>(null)
@@ -1179,6 +1189,15 @@ open class MainActivity : ComponentActivity() {
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
+
+                            /*
+                             * Otázka na rewatch patrí na tú istú vrstvu ako `NuvioNavHost`, teda nad
+                             * obrazovky a vedľa ostatných celoaplikačných overlayov. Keby visela len
+                             * v `PlayerScreen`, zmizla by pri prechode na inú obrazovku, hoci zápis
+                             * odpovede ešte beží. Mobile to má v `MainAppContent.kt` na rovnakej
+                             * úrovni.
+                             */
+                            RewatchPromptOverlay(repository = rewatchPromptRepository)
                         }
                     }
                 } 

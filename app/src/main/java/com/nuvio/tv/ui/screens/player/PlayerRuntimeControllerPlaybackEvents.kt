@@ -891,7 +891,11 @@ internal fun PlayerRuntimeController.emitScrobbleStop(progressPercent: Float? = 
         logScrobbleDiagnostic("stop_dispatching", "progress=$percent")
         val failures = trackingScrobbleCoordinator.scrobble(
             action = TrackingScrobbleAction.STOP,
-            event = TrackingScrobbleEvent(item, percent.toDouble())
+            event = TrackingScrobbleEvent(
+                item,
+                percent.toDouble(),
+                contentEndPercent = currentContentEndPercent()
+            )
         )
         logScrobbleDiagnostic("stop_dispatched", "progress=$percent failures=${failures.map { it.providerId.storageId }}")
     }
@@ -926,7 +930,11 @@ internal fun PlayerRuntimeController.emitScrobblePause(progressPercent: Float? =
         logScrobbleDiagnostic("pause_dispatching", "progress=$percent")
         val failures = trackingScrobbleCoordinator.scrobble(
             action = TrackingScrobbleAction.PAUSE,
-            event = TrackingScrobbleEvent(item, percent.toDouble())
+            event = TrackingScrobbleEvent(
+                item,
+                percent.toDouble(),
+                contentEndPercent = currentContentEndPercent()
+            )
         )
         logScrobbleDiagnostic("pause_dispatched", "progress=$percent failures=${failures.map { it.providerId.storageId }}")
     }
@@ -970,12 +978,20 @@ internal fun PlayerRuntimeController.emitSeekScrobbleRestart(progressPercent: Fl
     scope.launch {
         trackingScrobbleCoordinator.scrobbleSeek(
             action = TrackingScrobbleAction.STOP,
-            event = TrackingScrobbleEvent(item, progressPercent.toDouble())
+            event = TrackingScrobbleEvent(
+                item,
+                progressPercent.toDouble(),
+                contentEndPercent = currentContentEndPercent()
+            )
         )
         if (isPlaybackCurrentlyPlaying()) {
             trackingScrobbleCoordinator.scrobbleSeek(
                 action = TrackingScrobbleAction.START,
-                event = TrackingScrobbleEvent(item, currentPlaybackProgressPercent().toDouble())
+                event = TrackingScrobbleEvent(
+                    item,
+                    currentPlaybackProgressPercent().toDouble(),
+                    contentEndPercent = currentContentEndPercent()
+                )
             )
         }
     }
