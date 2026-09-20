@@ -30,7 +30,18 @@ data class WatchProgress(
     val simklPlaybackId: Long? = null,
     override val trackingProviderId: String? = null,
     override val trackingProviderItemId: String? = null,
-    override val trackingSourceUrl: String? = null
+    override val trackingSourceUrl: String? = null,
+    /**
+     * Where this playback counts as finished, as a fraction, when its source knows the number.
+     *
+     * A Simkl playback row is read back from the account, and the account keeps the row open while the
+     * client that wrote it reported a position under its own completion threshold, which is the user's
+     * `simklWatchedThresholdPercent` and not Simkl's own 80 percent. The row therefore carries the
+     * number it was reported with, so the reading and the reporting side cannot disagree. Null keeps
+     * the default of the source ([COMPLETED_THRESHOLD], or [SIMKL_COMPLETED_THRESHOLD] for a Simkl
+     * playback row that arrived without one).
+     */
+    val completionThresholdFraction: Float? = null
 ) : TrackingAttributedItem {
     override val trackingContentId: String
         get() = contentId
@@ -68,8 +79,8 @@ data class WatchProgress(
     fun isInProgress(startThreshold: Float = STARTED_THRESHOLD, endThreshold: Float = completionThreshold()): Boolean =
         progressPercentage >= startThreshold && progressPercentage < endThreshold
 
-    private fun completionThreshold(): Float =
-        if (source == SOURCE_SIMKL_PLAYBACK) SIMKL_COMPLETED_THRESHOLD else COMPLETED_THRESHOLD
+    private fun completionThreshold(): Float = completionThresholdFraction
+        ?: if (source == SOURCE_SIMKL_PLAYBACK) SIMKL_COMPLETED_THRESHOLD else COMPLETED_THRESHOLD
 
     /**
      * Returns the remaining time in milliseconds

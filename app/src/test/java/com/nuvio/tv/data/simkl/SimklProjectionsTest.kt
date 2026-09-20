@@ -268,6 +268,81 @@ class SimklProjectionsTest {
     }
 
     @Test
+    fun `a playback row read with the stored threshold stays in progress under it`() {
+        val session = SimklPlaybackSession(
+            id = 12346,
+            progress = 86.0,
+            pausedAt = "2024-04-30T22:13:00Z",
+            type = "episode",
+            episode = SimklPlaybackEpisode(season = 1, number = 3, title = "Chapter Three"),
+            show = media(39687, "tt4574334", runtime = 50)
+        )
+
+        val progress = SimklSyncSnapshot(playback = listOf(session))
+            .toSimklProgressEntries(completionThresholdFraction = 0.95f)
+            .single()
+
+        // The stop that wrote this row was reported as a pause, because it sat under the threshold of
+        // the user. Reading it back with the same number is what keeps the episode on the Continue
+        // Watching row: shouldTreatAsInProgressForContinueWatching drops a row the moment isCompleted()
+        // is true, so an episode stopped at 86 percent of a threshold of 95 has not finished.
+        assertEquals(0.95f, progress.completionThresholdFraction)
+        assertFalse(progress.isCompleted())
+        assertTrue(progress.isInProgress())
+    }
+
+    @Test
+    fun `a playback row at the stored threshold is completed`() {
+        val session = SimklPlaybackSession(
+            id = 12347,
+            progress = 95.0,
+            pausedAt = "2024-04-30T22:13:00Z",
+            type = "episode",
+            episode = SimklPlaybackEpisode(season = 1, number = 3, title = "Chapter Three"),
+            show = media(39687, "tt4574334", runtime = 50)
+        )
+
+        val progress = SimklSyncSnapshot(playback = listOf(session))
+            .toSimklProgressEntries(completionThresholdFraction = 0.95f)
+            .single()
+
+        assertEquals(0.95f, progress.completionThresholdFraction)
+        assertTrue(progress.isCompleted())
+        assertFalse(progress.isInProgress())
+    }
+
+    @Test
+    fun `a playback row without a stored threshold keeps the eighty percent of its source`() {
+        val session = SimklPlaybackSession(
+            id = 12348,
+            progress = 86.0,
+            pausedAt = "2024-04-30T22:13:00Z",
+            type = "episode",
+            episode = SimklPlaybackEpisode(season = 1, number = 3, title = "Chapter Three"),
+            show = media(39687, "tt4574334", runtime = 50)
+        )
+
+        // Nothing was read, so nothing is claimed: the row falls back to what it did before the
+        // threshold existed, which is 80 percent for a Simkl playback row.
+        val progress = SimklSyncSnapshot(playback = listOf(session))
+            .toSimklProgressEntries()
+            .single()
+
+        assertNull(progress.completionThresholdFraction)
+        assertTrue(progress.isCompleted())
+        assertFalse(progress.isInProgress())
+    }
+
+    @Test
+    fun `the stored threshold becomes the fraction the playback row is read with`() {
+        assertEquals(0.95f, resolvedSimklCompletionFraction(95))
+        assertEquals(0.80f, resolvedSimklCompletionFraction(80))
+        // Under the bar Simkl itself needs a watch cannot be read, whatever the setting holds.
+        assertEquals(0.80f, resolvedSimklCompletionFraction(50))
+        assertNull(resolvedSimklCompletionFraction(null))
+    }
+
+    @Test
     fun `media reference retains anime kind and accepted ids`() {
         val anime = entry(SimklMediaType.ANIME, SimklListStatus.WATCHING, 39687, "tt2560140", 16498)
         val reference = SimklSyncSnapshot(entries = listOf(anime)).mediaReference(
