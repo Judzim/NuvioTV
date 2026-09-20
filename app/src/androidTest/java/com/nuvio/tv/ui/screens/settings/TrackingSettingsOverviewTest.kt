@@ -164,7 +164,11 @@ class TrackingSettingsOverviewTest {
                     onWatchProgressClick = {},
                     onContinueWatchingWindowClick = {},
                     onCommentsChanged = {},
-                    onMoreLikeThisClick = {}
+                    onMoreLikeThisClick = {},
+                    onAnimeIdClick = {},
+                    onWatchedThresholdChange = {},
+                    onRewatchModeClick = {},
+                    onRewatchNextUpClick = {}
                 )
             }
         }
@@ -241,7 +245,11 @@ class TrackingSettingsOverviewTest {
                     onWatchProgressClick = {},
                     onContinueWatchingWindowClick = {},
                     onCommentsChanged = {},
-                    onMoreLikeThisClick = {}
+                    onMoreLikeThisClick = {},
+                    onAnimeIdClick = {},
+                    onWatchedThresholdChange = {},
+                    onRewatchModeClick = {},
+                    onRewatchNextUpClick = {}
                 )
             }
         }
