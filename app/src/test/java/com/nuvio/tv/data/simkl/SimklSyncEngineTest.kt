@@ -1,6 +1,13 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.TestPreferencesStore
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.RewatchRunPosition
+import com.nuvio.tv.data.local.ProfileDataStoreFactory
+import com.nuvio.tv.data.local.TraktSettingsDataStore
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -15,6 +22,24 @@ import org.junit.Test
 
 class SimklSyncEngineTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    /*
+     * Ako veľa rewatchu musí byť na účte, číta engine z `TraktSettingsDataStore`, takže testy mu
+     * dávajú skutočný store nad pamäťovým preferences store. Nič sa do neho nepíše, takže režim je
+     * dokumentovaný default, rovnako ako predtým.
+     */
+    private val settingsPreferences = TestPreferencesStore()
+    private val settingsDataStore = TraktSettingsDataStore(
+        mockk<ProfileDataStoreFactory>().also { factory ->
+            every { factory.get(any(), any()) } returns settingsPreferences
+        },
+        mockk<ProfileManager>().also { manager ->
+            every { manager.activeProfileId } returns MutableStateFlow(1)
+        }
+    )
+
+    private fun engine(remote: SimklSyncRemote, now: () -> Long): SimklSyncEngine =
+        SimklSyncEngine(remote, settingsDataStore, now)
 
     @Test
     fun `documented all items fixture decodes flexible ids and nullable fields`() {
@@ -42,7 +67,7 @@ class SimklSyncEngineTest {
             Step.Activities(activities(all = "v1"))
         )
 
-        val result = SimklSyncEngine(remote) { 500L }.synchronize(SimklSyncSnapshot())
+        val result = engine(remote) { 500L }.synchronize(SimklSyncSnapshot())
 
         assertTrue(result.isInitialized)
         assertEquals("v1", result.watermark)
@@ -71,7 +96,7 @@ class SimklSyncEngineTest {
         )
         val remote = ScriptedRemote(Step.Activities(activities(all = "v1")))
 
-        val result = SimklSyncEngine(remote) { 20L }.synchronize(current)
+        val result = engine(remote) { 20L }.synchronize(current)
 
         assertEquals(current.entries, result.entries)
         assertEquals(20L, result.lastCheckedAtEpochMs)
@@ -92,7 +117,7 @@ class SimklSyncEngineTest {
             Step.Playback(listOf(playback("2")))
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertEquals(current.entries, result.entries)
         assertEquals("2", result.playback.single().media?.ids?.idValue("simkl"))
@@ -114,7 +139,7 @@ class SimklSyncEngineTest {
             Step.Activities(activities(all = "v2", library = "l1", settings = "s2"))
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertEquals(current.entries, result.entries)
         assertEquals(current.playback, result.playback)
@@ -146,7 +171,7 @@ class SimklSyncEngineTest {
             Step.AllItems(null, authoritative)
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertEquals(listOf("1"), result.entries.mapNotNull { it.media?.ids?.idValue("simkl") })
         assertEquals(listOf(SimklAllItemsRequest.CurrentIds), remote.allItemsRequests)
@@ -196,7 +221,7 @@ class SimklSyncEngineTest {
                 Step.AllItems(null, SimklAllItemsResponse())
             )
 
-            SimklSyncEngine(remote) { 900L }.synchronize(current)
+            engine(remote) { 900L }.synchronize(current)
 
             assertEquals(
                 name,
@@ -225,7 +250,7 @@ class SimklSyncEngineTest {
             )
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertTrue(result.playback.isEmpty())
         assertTrue(result.toSimklProgressEntries().isEmpty())
@@ -251,7 +276,7 @@ class SimklSyncEngineTest {
             Step.Activities(activities(all = "v1", playback = "p1"))
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(SimklSyncSnapshot())
+        val result = engine(remote) { 900L }.synchronize(SimklSyncSnapshot())
 
         assertTrue(result.playback.isEmpty())
         assertEquals(1, result.toSimklWatchedProjection().items.size)
@@ -286,7 +311,7 @@ class SimklSyncEngineTest {
             Step.Playback(listOf(playback("3")))
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertEquals(setOf("2", "3"), result.entries.mapNotNull { it.media?.ids?.idValue("simkl") }.toSet())
         assertEquals(
@@ -321,7 +346,7 @@ class SimklSyncEngineTest {
             Step.AllItems(null, responseOf(canonical))
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertNull(result.entries.single().localPosterUrl)
         assertEquals(
@@ -349,7 +374,7 @@ class SimklSyncEngineTest {
         )
 
         assertThrows(IllegalStateException::class.java) {
-            runBlocking { SimklSyncEngine(remote) { 1_000L }.synchronize(current) }
+            runBlocking { engine(remote) { 1_000L }.synchronize(current) }
         }
         assertEquals("v1", current.watermark)
         assertEquals("1", current.entries.single().media?.ids?.idValue("simkl"))
@@ -423,7 +448,7 @@ class SimklSyncEngineTest {
             )
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(SimklSyncSnapshot())
+        val result = engine(remote) { 900L }.synchronize(SimklSyncSnapshot())
 
         assertEquals(2, result.rewatchRuns.single().seasonNumber)
         assertEquals(7, result.rewatchRuns.single().episodeNumber)
@@ -433,6 +458,64 @@ class SimklSyncEngineTest {
         // position and the rewatch never replaces it.
         assertEquals(listOf("1"), result.entries.mapNotNull { it.media?.ids?.idValue("simkl") })
         assertTrue(remote.isExhausted)
+    }
+
+    @Test
+    fun `the stored next up mode decides whether a single rewatched episode becomes a run`() = runBlocking {
+        // Predtým sa tu čítal predvolený režim, takže jedno rewatchnuté pokračovanie stačilo.
+        settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.AFTER_TWO)
+        val awaited = engine(
+            ScriptedRemote(
+                Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
+                Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
+                Step.AllItems(SimklMediaType.ANIME, SimklAllItemsResponse(anime = emptyList())),
+                Step.Playback(listOf(playback("1"))),
+                Step.Activities(activities(all = "v1")),
+                Step.RewatchSessions(
+                    listOf(rewatchEntry("1", season = 2, watched = listOf(7 to REWATCH_NEWER)))
+                )
+            )
+        ) { 900L }.synchronize(SimklSyncSnapshot())
+
+        assertTrue(awaited.rewatchRuns.isEmpty())
+        // Sessions sa držia ďalej, takže návrat režimu späť vie runs prederivovať bez siete.
+        assertEquals(1, awaited.rewatchSessions.size)
+
+        settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.ALWAYS)
+        val immediate = engine(
+            ScriptedRemote(
+                Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
+                Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
+                Step.AllItems(SimklMediaType.ANIME, SimklAllItemsResponse(anime = emptyList())),
+                Step.Playback(listOf(playback("1"))),
+                Step.Activities(activities(all = "v1")),
+                Step.RewatchSessions(
+                    listOf(rewatchEntry("1", season = 2, watched = listOf(7 to REWATCH_NEWER)))
+                )
+            )
+        ) { 900L }.synchronize(SimklSyncSnapshot())
+
+        assertEquals(7, immediate.rewatchRuns.single().episodeNumber)
+    }
+
+    @Test
+    fun `a stored off rewatch mode keeps every run out`() = runBlocking {
+        settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.NEVER)
+        val remote = ScriptedRemote(
+            Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
+            Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
+            Step.AllItems(SimklMediaType.ANIME, SimklAllItemsResponse(anime = emptyList())),
+            Step.Playback(listOf(playback("1"))),
+            Step.Activities(activities(all = "v1")),
+            Step.RewatchSessions(
+                listOf(rewatchEntry("1", season = 2, watched = listOf(6 to REWATCH_OLDER, 7 to REWATCH_NEWER)))
+            )
+        )
+
+        val result = engine(remote) { 900L }.synchronize(SimklSyncSnapshot())
+
+        assertTrue(result.rewatchRuns.isEmpty())
+        assertEquals(1, result.rewatchSessions.size)
     }
 
     @Test
@@ -459,7 +542,7 @@ class SimklSyncEngineTest {
             )
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertEquals(7, result.rewatchRuns.single().episodeNumber)
         assertEquals(parseSimklUtcEpochMs(REWATCH_NEWER)!!, result.rewatchRuns.single().markedAtEpochMs)
@@ -489,7 +572,7 @@ class SimklSyncEngineTest {
             Step.Failure(IllegalStateException("network"))
         )
 
-        val result = SimklSyncEngine(remote) { 900L }.synchronize(current)
+        val result = engine(remote) { 900L }.synchronize(current)
 
         assertEquals(listOf(previousRun), result.rewatchRuns)
         assertEquals(listOf(previousSession), result.rewatchSessions)

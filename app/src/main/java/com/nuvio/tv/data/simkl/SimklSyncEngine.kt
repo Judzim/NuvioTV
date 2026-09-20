@@ -1,13 +1,19 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.data.local.TraktSettingsDataStore
 import javax.inject.Inject
+import kotlinx.coroutines.flow.first
 
 class SimklSyncEngine internal constructor(
     private val remote: SimklSyncRemote,
+    private val settingsDataStore: TraktSettingsDataStore,
     private val nowEpochMs: () -> Long
 ) {
     @Inject
-    constructor(remote: SimklSyncRemote) : this(remote, System::currentTimeMillis)
+    constructor(
+        remote: SimklSyncRemote,
+        settingsDataStore: TraktSettingsDataStore
+    ) : this(remote, settingsDataStore, System::currentTimeMillis)
 
     suspend fun synchronize(current: SimklSyncSnapshot): SimklSyncSnapshot {
         if (!current.isInitialized) return initialSync()
@@ -86,7 +92,7 @@ class SimklSyncEngine internal constructor(
             SimklRewatchRead(
                 runs = deriveSimklRewatchRuns(
                     entries = sessions,
-                    minimumRunEpisodes = minimumRewatchRunEpisodes
+                    minimumRunEpisodes = minimumRewatchRunEpisodes()
                 ),
                 sessions = sessions
             )
@@ -99,11 +105,11 @@ class SimklSyncEngine internal constructor(
 
     /*
      * Rozdiel oproti mobile: mobile číta `simklRewatchNextUpMode` z `TrackingSettingsRepository`.
-     * TV taký `object` repozitár nemá a kľúče v `TraktSettingsDataStore` pribudnú až v kroku 3.10,
-     * takže sa tu číta predvolený režim. Keď kľúč pribudne, nahradí sa len tento getter.
+     * TV taký `object` repozitár nemá, preto sa režim číta z `TraktSettingsDataStore` (kľúče
+     * pribudli v kroku 3.10). Čítanie je preto `suspend`, volajúci `readRewatchRuns` je `suspend`.
      */
-    private val minimumRewatchRunEpisodes: Int?
-        get() = SimklRewatchNextUpMode.Default.minimumRunEpisodes
+    private suspend fun minimumRewatchRunEpisodes(): Int? =
+        settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes
 }
 
 fun mergeSimklDelta(

@@ -7,6 +7,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
+import com.nuvio.tv.data.simkl.SimklRewatchMode
+import com.nuvio.tv.data.simkl.SimklRewatchNextUpMode
+import com.nuvio.tv.data.simkl.coerceSimklWatchedThresholdPercent
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +59,7 @@ class TraktSettingsDataStore @Inject constructor(
         val DEFAULT_MORE_LIKE_THIS_SOURCE = MoreLikeThisSourcePreference.TRAKT
         const val MIN_CONTINUE_WATCHING_DAYS_CAP = 7
         const val MAX_CONTINUE_WATCHING_DAYS_CAP = 365
+        const val DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT = 80
     }
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
@@ -72,6 +76,15 @@ class TraktSettingsDataStore @Inject constructor(
     private val librarySourceModeKey = stringPreferencesKey("library_source_mode")
     private val moreLikeThisSourceKey = stringPreferencesKey("more_like_this_source")
     private val simklAnimeIdPreferenceKey = stringPreferencesKey("simkl_anime_id_preference")
+    /*
+     * Rewatch nastavenia patria sem, hoci nesú SIMKL v názve: tento store je cross-provider
+     * tracking store a `simkl_anime_id_preference` je tu už vedľa nich. Kľúče sú nové, takže sa
+     * nič nemigruje. Režim sa ukladá ako `mode.name`, prah ako `Int` v rozsahu
+     * `coerceSimklWatchedThresholdPercent`.
+     */
+    private val simklRewatchModeKey = stringPreferencesKey("simkl_rewatch_mode")
+    private val simklRewatchNextUpModeKey = stringPreferencesKey("simkl_rewatch_next_up_mode")
+    private val simklWatchedThresholdPercentKey = intPreferencesKey("simkl_watched_threshold_percent")
 
     val continueWatchingDaysCap: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -230,6 +243,45 @@ class TraktSettingsDataStore @Inject constructor(
     suspend fun setSimklAnimeIdPreference(preference: SimklAnimeIdPreference) {
         store().edit { prefs ->
             prefs[simklAnimeIdPreferenceKey] = preference.name
+        }
+    }
+
+    val simklRewatchMode: Flow<SimklRewatchMode> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            SimklRewatchMode.fromStorage(prefs[simklRewatchModeKey])
+        }
+    }
+
+    suspend fun setSimklRewatchMode(mode: SimklRewatchMode) {
+        store().edit { prefs ->
+            prefs[simklRewatchModeKey] = mode.name
+        }
+    }
+
+    val simklRewatchNextUpMode: Flow<SimklRewatchNextUpMode> =
+        profileManager.activeProfileId.flatMapLatest { pid ->
+            factory.get(pid, FEATURE).data.map { prefs ->
+                SimklRewatchNextUpMode.fromStorage(prefs[simklRewatchNextUpModeKey])
+            }
+        }
+
+    suspend fun setSimklRewatchNextUpMode(mode: SimklRewatchNextUpMode) {
+        store().edit { prefs ->
+            prefs[simklRewatchNextUpModeKey] = mode.name
+        }
+    }
+
+    val simklWatchedThresholdPercent: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            coerceSimklWatchedThresholdPercent(
+                prefs[simklWatchedThresholdPercentKey] ?: DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT
+            )
+        }
+    }
+
+    suspend fun setSimklWatchedThresholdPercent(percent: Int) {
+        store().edit { prefs ->
+            prefs[simklWatchedThresholdPercentKey] = coerceSimklWatchedThresholdPercent(percent)
         }
     }
 }
