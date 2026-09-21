@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.tracking.RewatchRunPosition
 import com.nuvio.tv.core.util.isEpisodeReleaseAired
 import com.nuvio.tv.core.util.parseEpisodeReleaseInstant
 import com.nuvio.tv.core.util.selectEpisodeReleaseValue
@@ -67,7 +68,12 @@ private data class ContinueWatchingSettingsSnapshot(
     val nextUpFromFurthestEpisode: Boolean,
     val continueWatchingSortMode: ContinueWatchingSortMode,
     val watchedItemsVersion: Int,  // triggers re-evaluation when watched items change
-    val hasLoadedRemoteProgress: Boolean
+    val hasLoadedRemoteProgress: Boolean,
+    /**
+     * The account's rewatch runs. A run decides which episode a series offers next, so a change of
+     * the account's runs has to re-run the pipeline rather than wait for a watch to move.
+     */
+    val rewatchRuns: List<RewatchRunPosition> = emptyList()
 )
 
 /**
@@ -281,8 +287,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 arrayOf(daysCap, dismissedNextUp, showUnairedNextUp, nextUpFromFurthest, sortMode)
             },
             watchProgressRepository.watchedItems.map { it.size },
-            cwPipelineRefreshTrigger
-        ) { progressSnapshot, settingsSnapshot, watchedItemsSize, _ ->
+            cwPipelineRefreshTrigger,
+            simklSyncRepository.state
+                .map { state -> state.snapshot.rewatchRuns }
+                .distinctUntilChanged()
+        ) { progressSnapshot, settingsSnapshot, watchedItemsSize, _, rewatchRuns ->
             val (items, nextUpSeeds, hasLoadedRemoteProgress) = progressSnapshot
             @Suppress("UNCHECKED_CAST")
             val daysCap = settingsSnapshot[0] as Int
@@ -299,7 +308,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 nextUpFromFurthestEpisode = nextUpFromFurthestEpisode,
                 continueWatchingSortMode = continueWatchingSortMode,
                 watchedItemsVersion = watchedItemsSize,
-                hasLoadedRemoteProgress = hasLoadedRemoteProgress
+                hasLoadedRemoteProgress = hasLoadedRemoteProgress,
+                rewatchRuns = rewatchRuns
             )
         }.debounce(CW_PROGRESS_DEBOUNCE_MS).collectLatest { snapshot ->
             val debug = CwDebugSession()
@@ -309,7 +319,14 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 val cycleStartMs = SystemClock.elapsedRealtime()
                 val useTrackingProvider = watchProgressRepository.hasActiveTrackingProgressProvider()
                 val items = snapshot.items
-                val nextUpSeeds = snapshot.nextUpSeeds
+                // A rewatch run the user is following decides where its series sits in Next Up, so
+                // a seed a run is newer than carries the run position instead of the old watch
+                // position. Everything downstream reads this list, which is why the runs are
+                // applied here rather than at the resolver: the resolver offers the episode after
+                // the seed it is given, and with the run as the seed that is the next step of the
+                // run. A run whose series has no local seed at all is added as a seed, because with
+                // a provider owning the completed history there is nothing else to carry it.
+                val nextUpSeeds = applyRewatchRunPositions(snapshot.nextUpSeeds, snapshot.rewatchRuns)
                 val daysCap = snapshot.daysCap
                 val dismissedNextUp = snapshot.dismissedNextUp
                 val showUnairedNextUp = snapshot.showUnairedNextUp
