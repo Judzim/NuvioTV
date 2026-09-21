@@ -2232,7 +2232,8 @@ private fun resolveNextUpVideoFromMeta(
     meta: CwMetaSummary
 ): CwVideoSummary? = resolveNextUpVideoFromMeta(progress, meta, showUnairedNextUp = true)
 
-private const val CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS = 7
+// Shared with the detail screen run offer, so both read the same window.
+internal const val CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS = 7
 
 // An episode with no date is no more watchable than one dated ahead, so a missing date counts as unaired and stays under the same setting instead of passing as aired.
 internal fun isNextUpEpisodeUnaired(releaseDate: LocalDate?, today: LocalDate): Boolean =
