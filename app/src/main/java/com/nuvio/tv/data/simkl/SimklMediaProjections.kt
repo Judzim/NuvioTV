@@ -304,12 +304,12 @@ internal fun SimklPlaybackSession.toWatchProgress(
         trackingProviderId = TrackingProviderId.SIMKL.storageId,
         trackingProviderItemId = media.simklTrackingProviderItemId(),
         trackingSourceUrl = buildSimklSourceUrl(mediaType, media),
-        // Riadok vie, s akým prahom bol nahlásený, takže zápis a čítanie hovoria o tom istom čísle,
-        // a nie je to riadok ukončeného sledovania, ale pozícia, ktorú provider drží otvorenú. Kde
-        // taká pozícia končí, je marker tituliek, ktorý takýto riadok nemá, preto ho jeho percento
-        // samo neuzavrie; inak by pozícia vypadla z Continue Watching. Skutočne zapísaný watch príde
-        // ako história a ten riadok nahradí. Bez prahu (nastavenie sa nepodarilo prečítať) ostáva
-        // predvolených 80 percent zdroja.
+        // Riadok nie je ukončené sledovanie, ale pozícia, ktorú provider drží otvorenú, a nesie to
+        // vo `isProviderPlaybackPosition`. Kde taká pozícia končí, je marker tituliek, ktorý takýto
+        // riadok nemá, preto ho jeho percento samo neuzavrie; inak by pozícia vypadla z Continue
+        // Watching. Prah sa sem odovzdáva len ako číslo, s ktorým bol riadok nahlásený, a o jeho
+        // ukončení nerozhoduje. Skutočne zapísaný watch príde ako história a ten riadok nahradí.
+        // Bez prahu (nastavenie sa nepodarilo prečítať) ostáva predvolených 80 percent zdroja.
         completionThresholdFraction = completionThresholdFraction,
         isProviderPlaybackPosition = true
     )

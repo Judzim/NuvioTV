@@ -11,8 +11,9 @@ import kotlinx.serialization.Serializable
  * offers S01E03 next.
  *
  * The position is read from the tracking account (see `deriveSimklRewatchRuns`) rather than stored on
- * the device, so the row behaves the same on every device the user signs in on. The rule for what
- * counts as a run lives with that reader: two episodes in a row, never a single one.
+ * device, so the row behaves the same on every device the user signs in on. The rule for what
+ * counts as a run lives with that reader, and the reader takes its length from the user's mode: a
+ * single rewatched episode is enough in the default mode, two in a row are needed in the stricter one.
  *
  * [matchKeys] holds every ID form of the series (imdb, tmdb, tvdb, simkl, the catalogue id), because
  * the Continue Watching pipeline builds its series key from whichever id the playback carried.

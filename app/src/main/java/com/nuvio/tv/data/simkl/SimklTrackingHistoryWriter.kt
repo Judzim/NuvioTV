@@ -68,4 +68,4 @@ private fun TrackingHistoryItem.isWholeSeriesMark(): Boolean =
     media.episode == null && media.kind.name.lowercase() !in MOVIE_LIKE_WATCHED_TYPES
 
 /** Content types that stand on their own and need no episode to be a real mark. */
-private val MOVIE_LIKE_WATCHED_TYPES = setOf("movie", "film")
+private val MOVIE_LIKE_WATCHED_TYPES = setOf("movie")

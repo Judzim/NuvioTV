@@ -96,8 +96,10 @@ internal fun resolvedSimklCompletionPercent(
  * The write side decides with [resolvedSimklCompletionPercent] and the credits marker of the playback
  * it is scrobbling; the reading side sees only the row the account kept, so the marker is not there.
  * What the row does carry is the percentage it was reported with, and the account keeps it open while
- * that sat under the threshold of the write. The threshold of the user is therefore the number that
- * has to be read with, never below the bar Simkl needs, and both sides then agree on the same row.
+ * that sat under the threshold of the write. The number is therefore stored on the row, never below
+ * the bar Simkl needs. Storing it does not decide the row: a row the account kept is a provider
+ * playback position and never completes on a percentage, whatever number it was read with. For a row
+ * that is not such a position the number is still the threshold the row is read with.
  *
  * A null means the setting could not be read: the caller leaves the field unset and the row keeps the
  * default of its own source.
