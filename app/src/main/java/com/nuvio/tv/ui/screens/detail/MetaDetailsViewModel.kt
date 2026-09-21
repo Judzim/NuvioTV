@@ -1860,7 +1860,11 @@ class MetaDetailsViewModel @Inject constructor(
         // exactly as it does without a run.
         val rewatchRun = rewatchRunFor(meta.id) ?: rewatchRunFor(_effectiveContentId.value)
         if (rewatchRun != null) {
-            val runEpisode = nextEpisodeAfterRun(episodePool, rewatchRun)
+            val runEpisode = nextEpisodeAfterRun(
+                episodes = episodePool,
+                run = rewatchRun,
+                showUnairedNextUp = layoutPreferenceDataStore.showUnairedNextUp.first(),
+            )
             if (runEpisode != null) {
                 return NextToWatch(
                     watchProgress = null,
