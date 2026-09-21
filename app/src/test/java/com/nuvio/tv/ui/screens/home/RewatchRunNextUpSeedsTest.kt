@@ -73,29 +73,42 @@ class RewatchRunNextUpSeedsTest {
         )
 
         assertEquals(1, result.size)
-        assertEquals(2, result.single().season)
+        // The newest mark wins the whole position, so the season has to come from the same run the
+        // episode and the mark come from: the older S02E02 run contributes nothing.
+        assertEquals(5, result.single().season)
         assertEquals(6, result.single().episode)
         assertEquals(2_500L, result.single().lastWatched)
     }
 
     @Test
     fun `a run is matched by every id form of the series`() {
-        val seed = seed(contentId = "tt5753856", season = 1, episode = 1, lastWatched = 500L)
-
-        val result = applyRewatchRunPositions(
-            seeds = listOf(seed),
-            runs = listOf(
-                run(
-                    contentId = "simkl:39687",
-                    season = 2, episode = 3, markedAt = 900L,
-                    matchKeys = listOf("simkl:39687", "imdb:tt5753856"),
-                ),
-            ),
+        // matchKeys are built by SimklMedia.rewatchMatchKeys (SimklRewatchRuns.kt), which adds the
+        // canonical content id, the bare imdb id and the "imdb:" form, so a seed built from whichever
+        // id the playback carried still finds the run.
+        val seriesRun = run(
+            contentId = "simkl:39687",
+            season = 2, episode = 3, markedAt = 900L,
+            matchKeys = listOf("simkl:39687", "tt5753856", "imdb:tt5753856"),
         )
 
-        val moved = result.single { it.contentId == "tt5753856" }
-        assertEquals(2, moved.season)
-        assertEquals(3, moved.episode)
+        val byBareImdb = applyRewatchRunPositions(
+            seeds = listOf(seed(contentId = "tt5753856", season = 1, episode = 1, lastWatched = 500L)),
+            runs = listOf(seriesRun),
+        ).single()
+        assertEquals(2, byBareImdb.season)
+        assertEquals(3, byBareImdb.episode)
+
+        val byImdbPrefix = applyRewatchRunPositions(
+            seeds = listOf(seed(contentId = "imdb:tt5753856", season = 1, episode = 1, lastWatched = 500L)),
+            runs = listOf(seriesRun),
+        ).single()
+        assertEquals(3, byImdbPrefix.episode)
+
+        val byRunContentId = applyRewatchRunPositions(
+            seeds = listOf(seed(contentId = "simkl:39687", season = 1, episode = 1, lastWatched = 500L)),
+            runs = listOf(seriesRun),
+        ).single()
+        assertEquals(3, byRunContentId.episode)
     }
 
     @Test
@@ -162,9 +175,15 @@ class RewatchRunNextUpSeedsTest {
             runs = listOf(run(contentId = OTHER_SHOW, season = 9, episode = 9, markedAt = 2_000L)),
         )
 
-        assertEquals(1, result.size)
-        assertEquals(seed.contentId, result.single().contentId)
-        assertEquals(2, result.single().episode)
+        // The run does not match this seed, so the seed is left exactly as it was. Its own series
+        // holds no seed though, and the rule gives a run with no seed of its own one, the same branch
+        // the mobile client has, so that series joins the row instead of being lost.
+        assertEquals(2, result.size)
+        assertSame(seed, result.single { it.contentId == SHOW })
+        val added = result.single { it.contentId == OTHER_SHOW }
+        assertEquals(9, added.season)
+        assertEquals(9, added.episode)
+        assertEquals(2_000L, added.lastWatched)
     }
 
     private fun seed(
