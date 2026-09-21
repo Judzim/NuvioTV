@@ -111,11 +111,12 @@ class SimklRewatchPromptRepository @Inject constructor(
     /**
      * Drops the question and the answer, and signs Simkl out with them.
      *
-     * Toto je cesta odhlásenia, nie cesta zavretia overlaya: mobile ju volá presne pri odhlásení
-     * (`SimklAuthRepository.kt:171`), lebo otázka, ktorá ostane visieť po odhlásení, by po odpovedi
-     * zapisovala do účtu, ktorý už nie je pripojený. Na zavretie otázky bez odpovede je [dismiss],
-     * na odpoveď `Nie` je [decline]. TV `SimklAuthRepository` o tomto repozitári nevie, takže sa
-     * odhlásenie volá odtiaľto ([SimklAuthRepository.disconnect]).
+     * Na zavretie otázky bez odpovede je [dismiss], na odpoveď `Nie` je [decline]. Televízna cesta
+     * odhlásenia touto metódou neprechádza: `SimklSettingsViewModel.onDisconnect` volá [dismiss]
+     * a hneď po ňom `authRepository.disconnect()`, aby otázka neostala visieť na obrazovke a po
+     * odpovedi nezapisovala do účtu, ktorý už nie je pripojený. `SimklAuthRepository.disconnect` je
+     * len `storage.clearAuth()` a o tomto repozitári nevie, takže odhlásenie otázku zvlášť nezruší.
+     * Táto metóda ostáva ako cesta, ktorá odhlásenie spraví spolu s otázkou, a TV volajúceho nemá.
      */
     fun clear() {
         _prompt.value = null

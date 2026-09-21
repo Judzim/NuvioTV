@@ -32,15 +32,18 @@ data class WatchProgress(
     override val trackingProviderItemId: String? = null,
     override val trackingSourceUrl: String? = null,
     /**
-     * Where this playback counts as finished, as a fraction, when its source knows the number.
+     * The threshold the row was reported with, as a fraction, for the rows where that number still
+     * decides something.
      *
-     * A Simkl playback row is read back from the account, and the account keeps the row open while the
-     * client that wrote it reported a position under its own completion threshold, which is the user's
-     * `simklWatchedThresholdPercent` and not Simkl's own 80 percent. The row therefore carries the
-     * number it was reported with, so the reading and the reporting side cannot disagree. Null keeps
-     * the default of the source ([COMPLETED_THRESHOLD], or [SIMKL_COMPLETED_THRESHOLD] for a Simkl
-     * playback row that arrived without one). It never decides completion for a row a provider keeps
-     * open, see [isProviderPlaybackPosition].
+     * A Simkl playback row is read back from the account and carries the completion threshold its
+     * write side reported it under, which is the user's `simklWatchedThresholdPercent` and not Simkl's
+     * own 80 percent. The field is what the row was reported with, not what the row is decided by:
+     * [isCompleted] short circuits on [isProviderPlaybackPosition] before it ever reads this number,
+     * because a row a provider keeps open is a position that does not complete on a percentage. For a
+     * row that is not a provider playback position this number is still the threshold it is read with,
+     * and [progressPercentage] is compared against it. Null keeps the default of the source
+     * ([COMPLETED_THRESHOLD], or [SIMKL_COMPLETED_THRESHOLD] for a Simkl playback row that arrived
+     * without one).
      */
     val completionThresholdFraction: Float? = null,
     /**

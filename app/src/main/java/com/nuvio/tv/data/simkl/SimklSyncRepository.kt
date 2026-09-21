@@ -340,8 +340,11 @@ class SimklSyncRepository @Inject constructor(
      * TV taký `object` repozitár pre UI stav nemá, preto sa prah číta z `TraktSettingsDataStore`,
      * rovnako ako `simklRewatchNextUpMode`. Projekcia je `suspend`, takže čítanie je jeden `first()`;
      * keď sa nastavenie nepodarí prečítať, prah sa neodovzdá a riadok prehrávania si ponechá
-     * predvolených 80 percent svojho zdroja. Rovnaké číslo tak rozhoduje na zápise (scrobbler) aj na
-     * čítaní (Continue Watching): epizóda zastavená na 86 percentách pri prahu 95 zostáva v riadku.
+     * predvolených 80 percent svojho zdroja. Prah rozhoduje na zápise (scrobbler), teda o tom, kedy
+     * sa prehratie nahlási ako ukončené. Na čítaní Continue Watching už o ukončení nerozhoduje:
+     * riadok prehrávania je pozícia, ktorú provider drží otvorenú, a taký riadok sa percentom
+     * neuzavrie, takže epizóda zastavená na 86 percentách pri prahu 95 ostáva v riadku. Prah sa na
+     * riadok stále odovzdáva a riadok si ho nesie ako číslo, s ktorým bol nahlásený.
      */
     private suspend fun completionThresholdFraction(): Float? = try {
         resolvedSimklCompletionFraction(settingsDataStore.simklWatchedThresholdPercent.first())
