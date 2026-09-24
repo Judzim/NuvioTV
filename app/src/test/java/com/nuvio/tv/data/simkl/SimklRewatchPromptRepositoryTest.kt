@@ -8,7 +8,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
-import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -28,8 +27,7 @@ import org.junit.Test
 class SimklRewatchPromptRepositoryTest {
 
     private val writer = mockk<SimklRewatchWriter>(relaxed = true)
-    private val authRepository = mockk<SimklAuthRepository>(relaxed = true)
-    private val repository = SimklRewatchPromptRepository(writer, authRepository)
+    private val repository = SimklRewatchPromptRepository(writer)
 
     @Test
     fun `a confirmed answer writes the rewatch the question holds`() = runBlocking {
@@ -118,17 +116,6 @@ class SimklRewatchPromptRepositoryTest {
         repository.dismissNotice()
 
         assertNull(repository.notice.value)
-    }
-
-    @Test
-    fun `clear drops the question and signs Simkl out`() {
-        repository.request(prompt())
-
-        repository.clear()
-
-        assertNull(repository.prompt.value)
-        assertNull(repository.notice.value)
-        verify(exactly = 1) { authRepository.disconnect() }
     }
 
     private suspend fun awaitNotice(): RewatchNotice =

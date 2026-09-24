@@ -51,8 +51,7 @@ data class RewatchNotice(val kind: RewatchNoticeKind)
  */
 @Singleton
 class SimklRewatchPromptRepository @Inject constructor(
-    private val writer: SimklRewatchWriter,
-    private val authRepository: SimklAuthRepository
+    private val writer: SimklRewatchWriter
 ) {
     /**
      * Where the write of a confirmed rewatch runs. It cannot be the scope of the overlay that asked
@@ -106,21 +105,5 @@ class SimklRewatchPromptRepository @Inject constructor(
     /** Hides the feedback of the last answer. */
     fun dismissNotice() {
         _notice.value = null
-    }
-
-    /**
-     * Drops the question and the answer, and signs Simkl out with them.
-     *
-     * Closing the question without an answer is [dismiss], answering `No` is [decline]. The TV sign out
-     * path does not go through this method: `SimklSettingsViewModel.onDisconnect` calls [dismiss] and
-     * `authRepository.disconnect()` right after it, so the question does not stay on screen and does not
-     * write to an account that is no longer connected once answered. `SimklAuthRepository.disconnect` is
-     * only `storage.clearAuth()` and knows nothing of this repository, so signing out does not cancel it
-     * on its own. This method stays as the path that signs out with the question, and TV has no caller.
-     */
-    fun clear() {
-        _prompt.value = null
-        _notice.value = null
-        authRepository.disconnect()
     }
 }
