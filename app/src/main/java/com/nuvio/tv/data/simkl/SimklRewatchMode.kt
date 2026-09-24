@@ -15,9 +15,6 @@ enum class SimklRewatchMode {
     AUTOMATIC,
     ;
 
-    val isEnabled: Boolean
-        get() = this != OFF
-
     companion object {
         val Default: SimklRewatchMode = OFF
 
@@ -39,7 +36,6 @@ internal const val SIMKL_REWATCH_MIN_PROGRESS_PERCENT = 80.0
  */
 internal const val SIMKL_WATCHED_THRESHOLD_MIN_PERCENT = 80
 internal const val SIMKL_WATCHED_THRESHOLD_MAX_PERCENT = 95
-internal const val SIMKL_WATCHED_THRESHOLD_DEFAULT_PERCENT = 80
 
 internal val SimklWatchedThresholdRange: IntRange =
     SIMKL_WATCHED_THRESHOLD_MIN_PERCENT..SIMKL_WATCHED_THRESHOLD_MAX_PERCENT

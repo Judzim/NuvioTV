@@ -31,14 +31,11 @@ class SimklRewatchPolicyTest {
     @Test
     fun `rewatch bookkeeping is off until the user asks for it`() {
         assertEquals(SimklRewatchMode.OFF, SimklRewatchMode.Default)
-        assertEquals(80, SIMKL_WATCHED_THRESHOLD_DEFAULT_PERCENT)
         assertEquals(SimklRewatchNextUpMode.ALWAYS, SimklRewatchNextUpMode.Default)
         assertEquals(SimklRewatchMode.OFF, SimklRewatchMode.fromStorage(null))
         assertEquals(SimklRewatchMode.OFF, SimklRewatchMode.fromStorage("nonsense"))
         assertEquals(SimklRewatchMode.AUTOMATIC, SimklRewatchMode.fromStorage("automatic"))
         assertEquals(SimklRewatchMode.MANUAL, SimklRewatchMode.fromStorage(" MANUAL "))
-        assertTrue(SimklRewatchMode.MANUAL.isEnabled)
-        assertFalse(SimklRewatchMode.OFF.isEnabled)
     }
 
     @Test
