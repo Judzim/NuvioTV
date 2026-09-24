@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   apk:
-    name: Assemble the 32-bit release APK
+    name: Assemble the 32-bit benchmark APK
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -58,19 +58,19 @@ jobs:
         continue-on-error: true
         run: ./gradlew :app:testFullDebugUnitTest --max-workers=2 --stacktrace
 
-      - name: Assemble the per-ABI release APKs
-        run: ./gradlew :app:assembleFullRelease --max-workers=2 --stacktrace
+      - name: Assemble the per-ABI benchmark APKs
+        run: ./gradlew :app:assembleFullBenchmark --max-workers=2 --stacktrace
 
       - name: Keep only the 32-bit APK
         run: |
-          ls -la app/build/outputs/apk/full/release/
+          ls -la app/build/outputs/apk/full/benchmark/
           mkdir -p dist
-          cp app/build/outputs/apk/full/release/*armeabi-v7a*.apk dist/nuvio-tv-rewatch-armeabi-v7a.apk
+          cp app/build/outputs/apk/full/benchmark/*armeabi-v7a*.apk dist/nuvio-tv-rewatch-armeabi-v7a.apk
           ls -la dist/
 
       - name: Upload the 32-bit APK
         uses: actions/upload-artifact@v4
         with:
-          name: tv-release-apk-v7a
+          name: tv-benchmark-apk-v7a
           path: dist/*.apk
           if-no-files-found: error
