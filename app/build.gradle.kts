@@ -338,13 +338,6 @@ androidComponents {
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
         variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
     }
-    // The release build of the fork carries its own app id, so it installs next to the official app
-    // and both can sit on one device. Only the full flavor is affected.
-    onVariants(selector().withBuildType("release")) { variant ->
-        if (variant.productFlavors.any { it.second == "full" }) {
-            variant.applicationId.set("com.judzim.nuvio.tv")
-        }
-    }
 }
 
 composeCompiler {
