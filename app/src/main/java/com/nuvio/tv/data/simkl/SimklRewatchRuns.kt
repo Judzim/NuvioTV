@@ -17,10 +17,10 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
  * the most recently rewatched episode is the run. How long that chain has to be is the user's
  * choice; see [SimklRewatchNextUpMode].
  *
- * Rozdiel oproti mobile: mobile berie `animeIdPreference` a grupuje cez `canonicalContentId(preference)`.
- * TV `SimklMedia.canonicalContentId()` je bezparametrická a anime preferenciu si drží vo
- * `SimklAnimeIdPreferenceHolder`, takže zhlukovanie na `contentId` ide cez ňu a preferencia sa
- * premieta len do zvyšku pipeline.
+ * Difference from mobile: mobile takes `animeIdPreference` and groups through
+ * `canonicalContentId(preference)`. The TV `SimklMedia.canonicalContentId()` takes no parameter and
+ * keeps the anime preference in `SimklAnimeIdPreferenceHolder`, so grouping on `contentId` goes
+ * through it and the preference shows up only in the rest of the pipeline.
  */
 internal fun deriveSimklRewatchRuns(
     entries: List<SimklLibraryEntry>,

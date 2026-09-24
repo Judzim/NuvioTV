@@ -91,13 +91,13 @@ internal fun rewatchPromptKeyOutcome(keyCode: Int, action: Int): RewatchPromptKe
 /**
  * The rewatch question and the feedback of its last answer, drawn above whatever is on screen.
  *
- * Toto je TV náprotivok mobile `RewatchPromptHost`: otázka sa pýta na prehratie, ktoré Simkl prijal
- * ako opakované, a nič sa nezapíše, kým ju používateľ nepotvrdí. Odpoveď prežíva zatvorenie
- * overlaya, lebo zápis beží na scope repozitára, nie na tom, ktorý otázku položil.
+ * This is the TV counterpart of mobile `RewatchPromptHost`: the question asks about a playback that
+ * Simkl accepted as a repeat viewing, and nothing is written until the user confirms. The answer
+ * outlives the overlay, because the write runs on the scope of the repository, not the one that asked.
  *
- * Rozdiel oproti mobile je v čase: TV nemá ako kliknúť mimo dialógu, takže otázka sa nedá nechať
- * len tak zmiznúť a používateľ musí vidieť, že vôbec bola. Po ôsmich sekundách bez akejkoľvek
- * interakcie sa preto zavrie ako odpoveď `Ignorovať`, teda s viditeľným "nezapísané", a nie ticho.
+ * The difference from mobile is the timeout: TV cannot click outside a dialog, so the question
+ * cannot be left to vanish and the user has to see that it was asked. After eight seconds without
+ * any interaction it closes as an ignore, with a visible "Nothing recorded" and not silently.
  */
 @Composable
 fun RewatchPromptOverlay(
@@ -127,16 +127,16 @@ fun RewatchPromptOverlay(
 /**
  * The question itself, drawn as the slim band the app already uses for its own notices.
  *
- * Otázka nie je dialóg v strede obrazovky: je to pruh na hornej hrane, postavený z tých istých
- * dielov a tých istých čísel ako banner novej verzie v `com.nuvio.tv.updater.ui`
- * (`app/src/full/java/com/nuvio/tv/updater/ui/UpdateBanner.kt`): kontajner `BackgroundElevated`
- * s jednoduchou čiarou dolu, výška aspoň 76 dp, vodorovný odstup 32 dp a zvislý 10 dp, vľavo ikona
- * 28 dp, potom text, a napravo tlačidlá v tvare pilulky. Banner je jediné vlastné oznámenie
- * aplikácie, takže otázka vyzerá ako on a nie ako vlastná konštrukcia.
+ * The question is not a dialog in the middle of the screen: it is a band on the top edge, built
+ * from the same pieces and the same numbers as the new version banner in `com.nuvio.tv.updater.ui`
+ * (`app/src/full/java/com/nuvio/tv/updater/ui/UpdateBanner.kt`): a `BackgroundElevated` container
+ * with a single line below it, at least 76 dp high, 32 dp of horizontal and 10 dp of vertical
+ * padding, a 28 dp icon on the left, then the text, and pill shaped buttons on the right. The banner
+ * is the only notice the app has of its own, so the question looks like it and not like its own design.
  *
- * Okno dialógu tu ostáva, ale je cez celú obrazovku, aby fokus a tlačidlo Späť ostali otázke:
- * pruh sa doň kreslí hore, nie do stredu. Fokus začína na `Zapísať` a šípka vpravo prejde na
- * `Nie`, takže odpoveď, ktorá sa zapisuje na účet, nikdy nie je tá omylom zvolená.
+ * The dialog window stays, but it fills the screen, so focus and the Back button stay with the
+ * question: the band is drawn at the top of it, not in the middle. Focus starts on `Record` and the
+ * right arrow moves to `No`, so the answer that writes to the account is never the one picked by mistake.
  */
 @Composable
 private fun RewatchQuestion(

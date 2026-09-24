@@ -674,11 +674,11 @@ internal fun TrackingSettingsOverview(
                                     modifier = Modifier.testTag("tracking_simkl_anime_id")
                                 )
                                 /*
-                                 * Prah je `SliderSettingsItem`, teda ten istý riadok, akým sa
-                                 * nastavuje časový limit výberu streamu: bez plusu a mínusu
-                                 * (`showStepper = false`), lebo na diaľkovom ovládači ich šípky
-                                 * zastupujú, a s krokom 1, takže sa dá zastaviť na každom celom
-                                 * percente v rozsahu a nie len na predvolených krokoch.
+                                 * The threshold is a `SliderSettingsItem`, the same row the stream
+                                 * selection timeout is set with: without plus and minus
+                                 * (`showStepper = false`), because on a remote the arrow keys take
+                                 * their place, and with a step of 1, so it can stop on every whole
+                                 * percent in the range and not only on the default steps.
                                  */
                                 SliderSettingsItem(
                                     icon = null,

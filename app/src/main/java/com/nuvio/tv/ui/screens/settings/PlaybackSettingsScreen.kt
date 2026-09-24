@@ -1080,10 +1080,10 @@ private fun SliderSettingsItemLayout(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 /*
-                 * Plus a mínus sú voliteľné: prah rewatchu si vyžiadal riadok bez nich, lebo na
-                 * diaľkovom ovládači posúvajú hodnotu šípky. Nastavenia, ktoré ich majú (napríklad
-                 * časový limit výberu streamu), vyzerajú ďalej rovnako, lebo `showStepper` je
-                 * predvolene `true`.
+                 * Plus and minus are optional: the rewatch threshold asked for a row without them,
+                 * because on a remote the arrow keys move the value. Settings that do have them (the
+                 * stream selection timeout, for example) keep looking the same, because `showStepper`
+                 * defaults to `true`.
                  */
                 if (showStepper) {
                     SliderStepperButton(
@@ -1130,8 +1130,8 @@ private fun SliderSettingsItemLayout(
 /**
  * The round plus or minus of a slider row, drawn the way this screen has always drawn it.
  *
- * Vytiahnuté zo `SliderSettingsItemLayout`, aby sa ten istý diel dal aj vynechať: prah rewatchu
- * potrebuje riadok, ktorý plus a mínus nemá, lebo na diaľkovom ovládači posúvajú hodnotu šípky.
+ * Pulled out of `SliderSettingsItemLayout` so the same piece can also be left out: the rewatch
+ * threshold needs a row without plus and minus, because on a remote the arrow keys move the value.
  */
 @Composable
 private fun SliderStepperButton(

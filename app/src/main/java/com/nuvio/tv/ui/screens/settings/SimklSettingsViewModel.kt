@@ -154,8 +154,8 @@ class SimklSettingsViewModel @Inject constructor(
     fun onDisconnect() {
         viewModelScope.launch {
             pollJob?.cancel()
-            // Otázka o opakovanom pozretí nesmie prežiť odhlásenie: overlay by ostal na obrazovke a
-            // potvrdenie by potom zapisovalo do účtu, ktorý už nie je pripojený.
+            // The rewatch question must not survive signing out: the overlay would stay on screen and
+            // a confirmation would then write to an account that is no longer connected.
             rewatchPromptRepository.dismiss()
             authRepository.disconnect()
             syncRepository.clearCurrentProfile()

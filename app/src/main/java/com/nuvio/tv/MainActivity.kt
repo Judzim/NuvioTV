@@ -314,9 +314,9 @@ open class MainActivity : ComponentActivity() {
     lateinit var deepLinkHandler: DeepLinkHandler
 
     /*
-     * Držaný v aktivite, nie v obrazovke prehrávača: otázka na rewatch musí prežiť navigáciu, rovnako
-     * ako to mobile drží v `MainAppContent.kt`. `SimklRewatchPromptRepository` je `@Singleton` a nie
-     * `@HiltViewModel`, takže sa získava injektovaním do aktivity a nie cez `hiltViewModel`.
+     * Held in the activity, not in the player screen: the rewatch question has to survive navigation,
+     * the way mobile holds it in `MainAppContent.kt`. `SimklRewatchPromptRepository` is a `@Singleton`
+     * and not a `@HiltViewModel`, so it is injected into the activity, not taken from `hiltViewModel`.
      */
     @Inject
     lateinit var rewatchPromptRepository: SimklRewatchPromptRepository
@@ -1191,11 +1191,11 @@ open class MainActivity : ComponentActivity() {
                             }
 
                             /*
-                             * Otázka na rewatch patrí na tú istú vrstvu ako `NuvioNavHost`, teda nad
-                             * obrazovky a vedľa ostatných celoaplikačných overlayov. Keby visela len
-                             * v `PlayerScreen`, zmizla by pri prechode na inú obrazovku, hoci zápis
-                             * odpovede ešte beží. Mobile to má v `MainAppContent.kt` na rovnakej
-                             * úrovni.
+                             * The rewatch question belongs at the same layer as `NuvioNavHost`, above
+                             * the screens and next to the other app wide overlays. Hanging it in
+                             * `PlayerScreen` alone would drop it when moving to another screen, even
+                             * though the answer is still being written. Mobile has it in
+                             * `MainAppContent.kt` at the same level.
                              */
                             RewatchPromptOverlay(repository = rewatchPromptRepository)
                         }

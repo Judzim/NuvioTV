@@ -56,9 +56,9 @@ data class TrackingSettingsUiState(
 /**
  * The Simkl preferences the tracking screen shows, read as one value.
  *
- * Držané spolu, lebo `combine` má preťaženia len do piatich flow: päť flow stavu obrazovky plus tri
- * rewatch flow a prah je osem, takže sa Simkl preferencie skladajú do jedného vnoreného `combine`
- * a do vonkajšieho vstupujú ako jedna hodnota.
+ * Held together because `combine` is overloaded only up to five flows: five screen state flows plus
+ * three rewatch flows and the threshold is eight, so the Simkl preferences are combined in an inner
+ * `combine` and enter the outer one as a single value.
  */
 internal data class SimklTrackingPreferences(
     val animeIdPreference: SimklAnimeIdPreference = SimklAnimeIdPreference.DEFAULT,
@@ -115,8 +115,8 @@ class TrackingSettingsViewModel @Inject constructor(
     /**
      * Set when the user picked a rewatch mode the account plan cannot record.
      *
-     * Zámerne mimo [uiState]: ten stav sa pri každom emitovaní skladá znova z kombinovaných flow,
-     * takže príznak v ňom by dialóg zavrel pri prvej správe zo syncu.
+     * Deliberately outside [uiState]: that state is built again from the combined flows on every
+     * emission, so a flag in it would close the dialog on the first message from the sync.
      */
     private val _rewatchUpgradeRequested = MutableStateFlow(false)
     val rewatchUpgradeRequested: StateFlow<Boolean> = _rewatchUpgradeRequested.asStateFlow()
@@ -191,8 +191,8 @@ class TrackingSettingsViewModel @Inject constructor(
      * saved and do nothing. `OFF` needs no plan and is never refused, which is what keeps the way
      * back always open.
      *
-     * TV nemá `LocalUriHandler`, ktorým mobile otvára stránku s ponukou Pro. ViewModel preto len
-     * povie, že plán nestačí, a obrazovka na to zobrazí dialóg s odkazom cez intent.
+     * TV has no `LocalUriHandler`, which mobile uses to open the page with the Pro offer. The
+     * ViewModel therefore only says the plan is not enough and the screen shows a dialog with the link.
      */
     fun setSimklRewatchMode(mode: SimklRewatchMode) {
         viewModelScope.launch {

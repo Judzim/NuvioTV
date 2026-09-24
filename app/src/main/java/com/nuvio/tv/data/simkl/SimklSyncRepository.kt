@@ -327,24 +327,24 @@ class SimklSyncRepository @Inject constructor(
     }
 
     /*
-     * Rozdiel oproti mobile: mobile číta `simklRewatchNextUpMode` z `TrackingSettingsRepository`.
-     * TV taký `object` repozitár nemá, preto sa režim číta z `TraktSettingsDataStore` (kľúče
-     * pribudli v kroku 3.10). Volajúci sú `suspend`, takže čítanie je jeden `first()`; režim sa
-     * premieta na počet epizód, ktoré reťaz rewatchu potrebuje, aby sa vôbec ukázala.
+     * Difference from mobile: mobile reads `simklRewatchNextUpMode` from `TrackingSettingsRepository`.
+     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where the
+     * keys live. The callers are `suspend`, so the read is a single `first()`; the mode maps to the
+     * number of episodes the rewatch chain needs before it is shown at all.
      */
     private suspend fun minimumRewatchRunEpisodes(): Int? =
         settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes
 
     /*
-     * Rozdiel oproti mobile: mobile číta `simklWatchedThresholdPercent` z `TrackingSettingsRepository`.
-     * TV taký `object` repozitár pre UI stav nemá, preto sa prah číta z `TraktSettingsDataStore`,
-     * rovnako ako `simklRewatchNextUpMode`. Projekcia je `suspend`, takže čítanie je jeden `first()`;
-     * keď sa nastavenie nepodarí prečítať, prah sa neodovzdá a riadok prehrávania si ponechá
-     * predvolených 80 percent svojho zdroja. Prah rozhoduje na zápise (scrobbler), teda o tom, kedy
-     * sa prehratie nahlási ako ukončené. Na čítaní Continue Watching už o ukončení nerozhoduje:
-     * riadok prehrávania je pozícia, ktorú provider drží otvorenú, a taký riadok sa percentom
-     * neuzavrie, takže epizóda zastavená na 86 percentách pri prahu 95 ostáva v riadku. Prah sa na
-     * riadok stále odovzdáva a riadok si ho nesie ako číslo, s ktorým bol nahlásený.
+     * Difference from mobile: mobile reads `simklWatchedThresholdPercent` from `TrackingSettingsRepository`.
+     * TV has no such `object` repository for UI state, so the threshold is read from `TraktSettingsDataStore`,
+     * the same as `simklRewatchNextUpMode`. The projection is `suspend`, so the read is a single `first()`;
+     * when the setting cannot be read, the threshold is not passed in and a playback row keeps the source
+     * default of 80 percent. The threshold decides on the write side (the scrobbler), that is when a
+     * playback is reported as finished. On the Continue Watching read it no longer decides that a playback
+     * is finished: a playback row is a position the provider keeps open, and such a row is never closed by
+     * a percentage, so an episode stopped at 86 percent with a threshold of 95 stays in the row. The
+     * threshold is still passed to the row, and the row carries it as the number it was reported with.
      */
     private suspend fun completionThresholdFraction(): Float? = try {
         resolvedSimklCompletionFraction(settingsDataStore.simklWatchedThresholdPercent.first())

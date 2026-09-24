@@ -935,9 +935,9 @@ internal fun formatTrackingDuration(valueMs: Long): String {
  * Shown when a free Simkl account tries to turn rewatch recording on.
  *
  * Simkl stores rewatch sessions for Pro and VIP accounts only, so the picker keeps its previous value
- * until the plan allows the change. Mobile otvára stránku s ponukou Pro cez `LocalUriHandler`, ktorý
- * TV v tejto vrstve nemá; odkaz sa preto otvára cez `Intent` v `runCatching`, rovnako ako to TV robí
- * inde, a nepodarené otvorenie sa povie v dialógu namiesto tichého kliknutia.
+ * until the plan allows the change. Mobile opens the page with the Pro offer through `LocalUriHandler`,
+ * which TV does not have at this layer, so the link is opened through an `Intent` in `runCatching`,
+ * the same as TV does elsewhere, and a failed open is reported in the dialog, not a silent click.
  */
 @Composable
 internal fun SimklRewatchUpgradeDialog(onDismiss: () -> Unit) {

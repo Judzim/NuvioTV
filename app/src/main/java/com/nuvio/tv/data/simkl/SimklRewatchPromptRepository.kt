@@ -43,11 +43,11 @@ data class RewatchNotice(val kind: RewatchNoticeKind)
  * account shows two episodes of the run rewatched, which is a rule that reads the same on every
  * device (see `deriveSimklRewatchRuns`).
  *
- * TV ekvivalent mobile `RewatchPromptRepository.kt`. Mobile ho zámerne drží mimo DI a mimo
- * životného cyklu (`object` s vlastným scope), aby write prežil zatvorenie popupu; TV je
- * `@Singleton`, ktorý si ten scope nesie v sebe, takže pre overlay v `PlayerScreen`, ktorý sa po
- * odpovedi odmontuje, platí to isté. Zápis odpovede ide na [SimklRewatchWriter], nie na
- * `SimklMutationService` priamo, aby sa dal otestovať bez HTTP.
+ * TV equivalent of mobile `RewatchPromptRepository.kt`. Mobile deliberately keeps it outside DI and
+ * outside the lifecycle (an `object` with its own scope) so the write survives the popup closing; TV
+ * makes it a `@Singleton` that carries that scope in itself, so the same holds for the overlay in
+ * `PlayerScreen`, which is unmounted after an answer. The answer is written through
+ * [SimklRewatchWriter] and not `SimklMutationService` directly, so it can be tested without HTTP.
  */
 @Singleton
 class SimklRewatchPromptRepository @Inject constructor(
@@ -111,12 +111,12 @@ class SimklRewatchPromptRepository @Inject constructor(
     /**
      * Drops the question and the answer, and signs Simkl out with them.
      *
-     * Na zavretie otázky bez odpovede je [dismiss], na odpoveď `Nie` je [decline]. Televízna cesta
-     * odhlásenia touto metódou neprechádza: `SimklSettingsViewModel.onDisconnect` volá [dismiss]
-     * a hneď po ňom `authRepository.disconnect()`, aby otázka neostala visieť na obrazovke a po
-     * odpovedi nezapisovala do účtu, ktorý už nie je pripojený. `SimklAuthRepository.disconnect` je
-     * len `storage.clearAuth()` a o tomto repozitári nevie, takže odhlásenie otázku zvlášť nezruší.
-     * Táto metóda ostáva ako cesta, ktorá odhlásenie spraví spolu s otázkou, a TV volajúceho nemá.
+     * Closing the question without an answer is [dismiss], answering `No` is [decline]. The TV sign out
+     * path does not go through this method: `SimklSettingsViewModel.onDisconnect` calls [dismiss] and
+     * `authRepository.disconnect()` right after it, so the question does not stay on screen and does not
+     * write to an account that is no longer connected once answered. `SimklAuthRepository.disconnect` is
+     * only `storage.clearAuth()` and knows nothing of this repository, so signing out does not cancel it
+     * on its own. This method stays as the path that signs out with the question, and TV has no caller.
      */
     fun clear() {
         _prompt.value = null

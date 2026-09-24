@@ -35,9 +35,9 @@ class SimklTrackingScrobblerTest {
     private val promptRepository = mockk<SimklRewatchPromptRepository>(relaxed = true)
 
     /*
-     * Režim rewatchu a prah dokončenia číta scrobbler z `TraktSettingsDataStore`, takže testy mu
-     * dávajú skutočný store nad pamäťovým preferences store. Nič sa do neho nepíše, takže platia
-     * dokumentované defaulty, rovnako ako predtým.
+     * The rewatch mode and the completion threshold are read by the scrobbler from
+     * `TraktSettingsDataStore`, so the tests give it a real store over an in-memory preferences
+     * store. Nothing is written to it, so the documented defaults hold, the same as before.
      */
     private val settingsPreferences = TestPreferencesStore()
     private val settingsDataStore = TraktSettingsDataStore(
@@ -154,8 +154,8 @@ class SimklTrackingScrobblerTest {
 
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
 
-        // V store nie je nič, takže režim je dokumentovaný default (OFF): otázka nemá čo spýtať
-        // a nikto nič nezapisuje bez potvrdenia.
+        // There is nothing in the store, so the mode is the documented default (OFF): the question
+        // has nothing to ask and nothing is written without a confirmation.
         verify(exactly = 0) { promptRepository.request(any()) }
     }
 
@@ -167,8 +167,8 @@ class SimklTrackingScrobblerTest {
 
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
 
-        // Režim z nastavení je to, čo povoľuje `allow_rewatch` na stope; s defaultom OFF by tu bolo
-        // `recordRewatch = false`.
+        // The mode from the settings is what allows `allow_rewatch` on the stop; with the default
+        // OFF this would be `recordRewatch = false`.
         coVerify {
             mutationService.scrobble(
                 action = TrackingScrobbleAction.STOP,
@@ -187,8 +187,8 @@ class SimklTrackingScrobblerTest {
 
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 90.0))
 
-        // Prah používateľa je 95, takže 90 percent ešte nie je dokončené pozretie: stop z tohto
-        // miesta by Simkl označil za pozreté svojím vlastným pravidlom 80 percent.
+        // The user threshold is 95, so 90 percent is not a finished watch yet: a stop from here
+        // would be marked watched by Simkl under its own 80 percent rule.
         coVerify {
             mutationService.scrobble(
                 action = TrackingScrobbleAction.PAUSE,
@@ -223,8 +223,8 @@ class SimklTrackingScrobblerTest {
         settingsDataStore.setSimklWatchedThresholdPercent(95)
         accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 90.0))
 
-        // Marker hovori, ze obsah konci na 91 percent, s toleranciou jedno percento je to 90. Prehratie
-        // na 90 percentach je teda dokoncene aj pri prahu 95, takze stop sa posle ako stop.
+        // The marker says the content ends at 91 percent, which with a tolerance of one percent is
+        // 90, so a playback at 90 percent is finished even with a threshold of 95: the stop is sent.
         scrobbler.scrobble(
             TrackingScrobbleAction.STOP,
             event(progressPercent = 90.0, contentEndPercent = 91.0)
@@ -246,8 +246,8 @@ class SimklTrackingScrobblerTest {
         settingsDataStore.setSimklWatchedThresholdPercent(95)
         accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 90.0))
 
-        // Marker na 80.5 percenta je po tolerancii pod tym, co Simkl vobec pocita, takze sa pouzit
-        // neda a rozhoduje prah pouzivatela: 90 percent je pauza, nie dokoncene prehratie.
+        // A marker at 80.5 percent is, after the tolerance, under what Simkl counts at all, so it
+        // cannot be used and the user threshold decides: 90 percent is a pause, not a finished playback.
         scrobbler.scrobble(
             TrackingScrobbleAction.STOP,
             event(progressPercent = 90.0, contentEndPercent = 80.5)

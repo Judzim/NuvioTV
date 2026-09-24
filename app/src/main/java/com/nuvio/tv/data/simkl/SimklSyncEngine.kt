@@ -104,9 +104,9 @@ class SimklSyncEngine internal constructor(
         }
 
     /*
-     * Rozdiel oproti mobile: mobile číta `simklRewatchNextUpMode` z `TrackingSettingsRepository`.
-     * TV taký `object` repozitár nemá, preto sa režim číta z `TraktSettingsDataStore` (kľúče
-     * pribudli v kroku 3.10). Čítanie je preto `suspend`, volajúci `readRewatchRuns` je `suspend`.
+     * Difference from mobile: mobile reads `simklRewatchNextUpMode` from `TrackingSettingsRepository`.
+     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where the
+     * keys live. The read is therefore `suspend`, and the caller `readRewatchRuns` is `suspend` too.
      */
     private suspend fun minimumRewatchRunEpisodes(): Int? =
         settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes

@@ -20,9 +20,9 @@ import kotlinx.coroutines.launch
  * episode with coordinates, so a whole-series write, which would mark every episode and lose the
  * rewatch, is not reachable from this path.
  *
- * TV ekvivalent mobile `SimklMutationRepository.recordConfirmedRewatch`, `rewatchReachedTheAccount`
- * a `refreshRewatchSessions`. Mobile ich má ako metódy jedného `object`; TV ich drží v jednej triede,
- * lebo potrebujú `SimklMutationService`, `SimklSyncRemote` aj `SimklSyncRepository`.
+ * TV equivalent of mobile `SimklMutationRepository.recordConfirmedRewatch`, `rewatchReachedTheAccount`
+ * and `refreshRewatchSessions`. Mobile has them as methods of one `object`; TV keeps them in one
+ * class, because they need `SimklMutationService`, `SimklSyncRemote` and `SimklSyncRepository`.
  */
 @Singleton
 class SimklRewatchWriter @Inject constructor(

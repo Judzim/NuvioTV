@@ -6,10 +6,10 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Kde obsah konci pre tracker: kde sa nacita marker konca obsahu a kedy sa odmietne.
+ * Where the content ends for the tracker: where the content end marker is read and when it is refused.
  *
- * Hodnota je percento, nie cas, lebo to je cislo, ktore porovnava tracker aj lokalny riadok
- * Continue Watching, a je to ta ista hodnota, aku mobile cita zo `SkipModels.kt`.
+ * The value is a percentage, not a time, because that is the number both the tracker and the local
+ * Continue Watching row compare, and it is the same value mobile reads from `SkipModels.kt`.
  */
 class PlayerContentEndPolicyTest {
 
@@ -114,8 +114,8 @@ class PlayerContentEndPolicyTest {
             interval(type = "movie-credits", startTime = 88.0)
         )
 
-        // Najskorsi marker je mimo videa, ale to nerobi z markera koniec obsahu: prah sa neda
-        // vycitat z hodnoty, ktora nie je poziciou v tomto prehrati.
+        // The earliest marker is outside the video, but that does not make it a content end: a
+        // threshold cannot be read from a value that is not a position inside this playback.
         assertEquals(88.0, intervals.contentEndPercent(100_000L)!!, 1e-9)
     }
 

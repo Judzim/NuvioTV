@@ -60,17 +60,17 @@ class SimklTrackingScrobbler @Inject constructor(
         )
         val mode = rewatchMode()
         val accountType = authRepository.state.value.accountType
-        // Jedno číslo pre celú cestu: pauzovanie, stop, rewatch brány aj lokálny commit. Marker
-        // konca obsahu dodáva prehrávač (`TrackingScrobbleEvent.contentEndPercent`), takže prehratie,
-        // ktoré došlo na titulky, je dokončené aj pri vyššom prahu používateľa. Externý prehrávač
-        // a start marker nemajú, tam rozhoduje prah používateľa sám.
+        // One number for the whole path: pause, stop, the rewatch gates and the local commit. The
+        // content end marker comes from the player (`TrackingScrobbleEvent.contentEndPercent`), so a
+        // playback that reached the credits is finished even with a higher user threshold. An external
+        // player and a start have no marker, and there the user threshold alone decides.
         val completionThresholdPercent = resolvedSimklCompletionPercent(
             userThresholdPercent = watchedThresholdPercent().toDouble(),
             contentEndPercent = enrichedEvent.contentEndPercent
         )
-        // Playback zastavený pod prahom je pre Simkl pauza: ako stop by si účet uplatnil vlastné
-        // pravidlo 80 percent a titul by označil za pozretý aj tak, hoci prah používateľa je
-        // vyššie. Tá istá akcia potom platí pre rewatch bránu, pre otázku aj pre lokálny commit.
+        // A playback stopped below the threshold is a pause for Simkl: as a stop the account would
+        // apply its own 80 percent rule and mark the title watched anyway, even though the user
+        // threshold is higher. The same action holds for the rewatch gate, the prompt and the commit.
         val reportingAction = simklReportingAction(
             action = action,
             progressPercent = enrichedEvent.progressPercent,
@@ -89,8 +89,8 @@ class SimklTrackingScrobbler @Inject constructor(
             recordRewatch = recordRewatch,
             completionThresholdPercent = completionThresholdPercent
         )
-        // Predošlé pozretie sa musí prečítať pred commitom, inak sa playback javí ako opakované
-        // pozretie sám seba. Otázku môže vyrobiť len stop.
+        // The prior watch has to be read before the commit, or the playback looks like a repeat
+        // viewing of itself. Only a stop can raise the prompt.
         val priorWatch = if (reportingAction == TrackingScrobbleAction.STOP) {
             syncRepository.state.value.snapshot.priorWatchForScrobble(result)
         } else {
@@ -135,12 +135,12 @@ class SimklTrackingScrobbler @Inject constructor(
     }
 
     /*
-     * Rozdiel oproti mobile: mobile číta `simklRewatchMode` a `simklWatchedThresholdPercent`
-     * z `TrackingSettingsRepository`. TV taký `object` repozitár nemá, preto sa obe hodnoty čítajú
-     * z `TraktSettingsDataStore` (kľúče pribudli v kroku 3.10). `scrobble` je `suspend`, takže
-     * čítanie je jeden `first()` na začiatku cesty, rovnako ako `minimumRewatchRunEpisodes`
-     * v `SimklSyncRepository.kt` a `SimklSyncEngine.kt`. Nastavenie z obrazovky tak mení správanie
-     * pri najbližšom scrobble.
+     * Difference from mobile: mobile reads `simklRewatchMode` and `simklWatchedThresholdPercent` from
+     * `TrackingSettingsRepository`. TV has no such `object` repository, so both values are read from
+     * `TraktSettingsDataStore`, where the keys live. `scrobble` is `suspend`, so the read is a single
+     * `first()` at the start of the path, the same as `minimumRewatchRunEpisodes` in
+     * `SimklSyncRepository.kt` and `SimklSyncEngine.kt`. A change on the settings screen therefore
+     * changes the behaviour at the next scrobble.
      */
     private suspend fun rewatchMode(): SimklRewatchMode =
         settingsDataStore.simklRewatchMode.first()

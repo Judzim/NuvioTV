@@ -304,12 +304,12 @@ internal fun SimklPlaybackSession.toWatchProgress(
         trackingProviderId = TrackingProviderId.SIMKL.storageId,
         trackingProviderItemId = media.simklTrackingProviderItemId(),
         trackingSourceUrl = buildSimklSourceUrl(mediaType, media),
-        // Riadok nie je ukončené sledovanie, ale pozícia, ktorú provider drží otvorenú, a nesie to
-        // vo `isProviderPlaybackPosition`. Kde taká pozícia končí, je marker tituliek, ktorý takýto
-        // riadok nemá, preto ho jeho percento samo neuzavrie; inak by pozícia vypadla z Continue
-        // Watching. Prah sa sem odovzdáva len ako číslo, s ktorým bol riadok nahlásený, a o jeho
-        // ukončení nerozhoduje. Skutočne zapísaný watch príde ako história a ten riadok nahradí.
-        // Bez prahu (nastavenie sa nepodarilo prečítať) ostáva predvolených 80 percent zdroja.
+        // The row is not a finished watch but a position the provider keeps open, and it says that in
+        // `isProviderPlaybackPosition`. Such a position ends at the credits marker, which a row like this
+        // does not carry, so its percentage alone never closes it, or the position would drop out of
+        // Continue Watching. The threshold is passed in only as the number the row was reported with,
+        // and does not decide that it is over. A really recorded watch arrives as history and replaces
+        // it, and without a threshold (the setting could not be read) the source default of 80 stays.
         completionThresholdFraction = completionThresholdFraction,
         isProviderPlaybackPosition = true
     )

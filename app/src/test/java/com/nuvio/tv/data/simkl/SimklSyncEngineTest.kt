@@ -24,9 +24,9 @@ class SimklSyncEngineTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     /*
-     * Ako veľa rewatchu musí byť na účte, číta engine z `TraktSettingsDataStore`, takže testy mu
-     * dávajú skutočný store nad pamäťovým preferences store. Nič sa do neho nepíše, takže režim je
-     * dokumentovaný default, rovnako ako predtým.
+     * How much of a rewatch the account has to hold is read by the engine from `TraktSettingsDataStore`,
+     * so the tests give it a real store over an in-memory preferences store. Nothing is written to
+     * it, so the mode is the documented default, the same as before.
      */
     private val settingsPreferences = TestPreferencesStore()
     private val settingsDataStore = TraktSettingsDataStore(
@@ -462,7 +462,7 @@ class SimklSyncEngineTest {
 
     @Test
     fun `the stored next up mode decides whether a single rewatched episode becomes a run`() = runBlocking {
-        // Predtým sa tu čítal predvolený režim, takže jedno rewatchnuté pokračovanie stačilo.
+        // This used to read the default mode here, so a single rewatched episode was enough.
         settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.AFTER_TWO)
         val awaited = engine(
             ScriptedRemote(
@@ -478,7 +478,7 @@ class SimklSyncEngineTest {
         ) { 900L }.synchronize(SimklSyncSnapshot())
 
         assertTrue(awaited.rewatchRuns.isEmpty())
-        // Sessions sa držia ďalej, takže návrat režimu späť vie runs prederivovať bez siete.
+        // The sessions are kept either way, so switching the mode back derives runs without a network call.
         assertEquals(1, awaited.rewatchSessions.size)
 
         settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.ALWAYS)

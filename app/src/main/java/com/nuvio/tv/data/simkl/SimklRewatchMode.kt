@@ -45,10 +45,10 @@ internal val SimklWatchedThresholdRange: IntRange =
     SIMKL_WATCHED_THRESHOLD_MIN_PERCENT..SIMKL_WATCHED_THRESHOLD_MAX_PERCENT
 
 /*
- * Rozdiel oproti mobile: mobile má v top level getteri `simklWatchedThresholdPercent`, ktorý číta
- * `TrackingSettingsRepository.uiState.value`. TV taký `object` repozitár pre UI stav nemá, len
- * `TraktSettingsDataStore`, takže prah sa tu nevyčítava. Odovzdáva sa ako parameter a scrobbler si ho
- * prečíta zo store.
+ * Difference from mobile: mobile has a top level `simklWatchedThresholdPercent` getter that reads
+ * `TrackingSettingsRepository.uiState.value`. TV has no such `object` repository for UI state, only
+ * `TraktSettingsDataStore`, so the threshold is not read here. It is passed in as a parameter and
+ * the scrobbler reads it from the store.
  */
 
 internal fun coerceSimklWatchedThresholdPercent(percent: Int): Int = percent.coerceIn(
@@ -57,9 +57,9 @@ internal fun coerceSimklWatchedThresholdPercent(percent: Int): Int = percent.coe
 )
 
 /*
- * Ako skoro sa číta marker konca obsahu. Mobile ho má ako `ContentEndTolerancePercent` vo
- * `features/watching/domain/WatchingPolicies.kt`; TV taký súbor nemá, preto je hodnota prenesená
- * sem, aby pravidlo ostalo na jednom mieste s ostatnou rewatch policy.
+ * How early the content end marker is read. Mobile has it as `ContentEndTolerancePercent` in
+ * `features/watching/domain/WatchingPolicies.kt`; TV has no such file, so the value is carried over
+ * here to keep the rule in one place with the rest of the rewatch policy.
  */
 internal const val SIMKL_CONTENT_END_TOLERANCE_PERCENT = 1.0
 

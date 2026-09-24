@@ -78,10 +78,10 @@ class TraktSettingsDataStore @Inject constructor(
     private val moreLikeThisSourceKey = stringPreferencesKey("more_like_this_source")
     private val simklAnimeIdPreferenceKey = stringPreferencesKey("simkl_anime_id_preference")
     /*
-     * Rewatch nastavenia patria sem, hoci nesú SIMKL v názve: tento store je cross-provider
-     * tracking store a `simkl_anime_id_preference` je tu už vedľa nich. Kľúče sú nové, takže sa
-     * nič nemigruje. Režim sa ukladá ako `mode.name`, prah ako `Int` v rozsahu
-     * `coerceSimklWatchedThresholdPercent`.
+     * The rewatch settings belong here even though they carry SIMKL in the name: this store is the
+     * cross-provider tracking store and `simkl_anime_id_preference` already sits next to them. The
+     * keys are new, so nothing is migrated. The mode is stored as `mode.name`, the threshold as an
+     * `Int` inside `coerceSimklWatchedThresholdPercent`.
      */
     private val simklRewatchModeKey = stringPreferencesKey("simkl_rewatch_mode")
     private val simklRewatchNextUpModeKey = stringPreferencesKey("simkl_rewatch_next_up_mode")

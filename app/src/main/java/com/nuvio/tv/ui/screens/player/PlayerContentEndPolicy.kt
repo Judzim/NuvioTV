@@ -3,23 +3,24 @@ package com.nuvio.tv.ui.screens.player
 import com.nuvio.tv.data.repository.SkipInterval
 
 /*
- * Segmenty, ktore oznacuju koniec obsahu: outro serialu (aj jeho anime varianty) a zaverecne titulky
- * filmu. Mobile ich ma v `features/player/skip/SkipModels.kt` ako `ContentEndSegmentTypes`; TV ma
- * `outro` v `PlayerNextEpisodeRules.OUTRO_SEGMENT_TYPES`, takze filmovy typ sa pridava az tu.
+ * The segment types that mark the end of the content: the outro of a series (its anime variants
+ * included) and the credits of a film. Mobile has them in `features/player/skip/SkipModels.kt` as
+ * `ContentEndSegmentTypes`; TV has `outro` in `PlayerNextEpisodeRules.OUTRO_SEGMENT_TYPES`, so the
+ * film type is added only here.
  */
 internal val ContentEndSegmentTypes: Set<String> =
     PlayerNextEpisodeRules.OUTRO_SEGMENT_TYPES + setOf("movie-credits")
 
 /**
- * Kde obsah naozaj konci, v percentach svojej dlzky, podla markeru z IntroDB.
+ * Where the content really ends, in percent of its own duration, from the IntroDB marker.
  *
- * Cita sa len marker, nikdy nastavenie skippovania: prehratie, ktore doslo na titulky, je skoncene aj
- * pre tracker. Pouzije sa najskorsi marker typu konca obsahu, teda tam, kde sa obsah konci, a nie tam,
- * kde konci posledna zaverecna scena.
+ * Only the marker is read, never the skip setting: a playback that reached the credits is finished
+ * for the tracker too. The earliest marker of a content end type is used, that is where the content
+ * ends and not where the last closing scene ends.
  *
- * Neplatne hodnoty sa odmietnu: nezmyselna dlzka, start mimo videa alebo start, ktory nie je kladne
- * cislo, vratia `null`. To znamena, ze rozhoduje prah, ktory si nastavil pouzivatel, rovnako ako pre
- * titul, ktory IntroDB nepozna.
+ * Invalid values are refused: a nonsense duration, a start outside the video or a start that is not
+ * a positive number all return `null`. That means the threshold the user set decides, the same as
+ * for a title IntroDB does not know.
  */
 internal fun List<SkipInterval>.contentEndPercent(durationMs: Long): Double? {
     if (durationMs <= 0L) return null
@@ -33,11 +34,11 @@ internal fun List<SkipInterval>.contentEndPercent(durationMs: Long): Double? {
 }
 
 /**
- * Ten isty marker pre prehratie, ktore je prave na obrazovke.
+ * The same marker for the playback that is on screen right now.
  *
- * Dlzka sa berie z prehravaca a ked uz nie je k dispozicii, z poslednej znacej dlzky, rovnako ako to
- * robi `currentPlaybackProgressPercent`. Stop sa totiz odosiela aj pri odchode z obrazovky, kedy uz
- * prehravac nemusi odpovedat, a marker pritom patri tomuto prehratiu, nie poziadavke.
+ * The duration comes from the player and, when that is no longer available, from the last known
+ * duration, the same as `currentPlaybackProgressPercent` does. A stop is also sent when leaving the
+ * screen, when the player may not answer any more, and the marker belongs to this playback, not the request.
  */
 internal fun PlayerRuntimeController.currentContentEndPercent(): Double? {
     val durationMs = currentPlaybackDurationMs().takeIf { it > 0L } ?: lastKnownDuration

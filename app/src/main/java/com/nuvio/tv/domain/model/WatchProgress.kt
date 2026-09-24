@@ -47,8 +47,8 @@ data class WatchProgress(
      * ([COMPLETED_THRESHOLD], or [SIMKL_COMPLETED_THRESHOLD] for a Simkl playback row that arrived
      * without one).
      *
-     * Držané vedľa [completionThresholdOverride], ktorý si nastavuje zdroj pre svoje vlastné riadky;
-     * obe nakoniec rozhodujú o tom istom, ale plnia ich rozdielni producenti.
+     * Held next to [completionThresholdOverride], which a source sets for its own rows; both end up
+     * deciding the same thing, but they are filled in by different producers.
      */
     val completionThresholdFraction: Float? = null,
     /**
