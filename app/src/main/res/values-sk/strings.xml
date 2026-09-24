@@ -2902,6 +2902,7 @@
 <string name="tracking_simkl_anime_id_subtitle">Určuje spôsob identifikácie anime seriálov. Výberom MAL alebo Kitsu získa každá séria vlastnú položku namiesto zoskupenia pod jedno IMDB ID.</string>
 <string name="tracking_simkl_anime_id_imdb">Uprednostniť IMDB</string>
 <string name="tracking_simkl_anime_id_mal">Uprednostniť MyAnimeList</string>
+<string name="tracking_simkl_anime_id_kitsu">Uprednostniť Kitsu</string>
 <string name="settings_tracking_completion_title">Pozreté od</string>
 <string name="settings_tracking_completion_subtitle">Nuvio nahlási do Simklu prehratie ako dokončené od tejto hodnoty. Záloha, keď neexistuje časová pečiatka outro.</string>
 <string name="settings_tracking_completion_value">%1$s %%</string>
