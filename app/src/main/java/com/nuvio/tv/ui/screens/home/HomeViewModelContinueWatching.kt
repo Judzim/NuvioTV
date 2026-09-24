@@ -2033,7 +2033,7 @@ private suspend fun HomeViewModel.enrichNextUpItem(
     val released = selectEpisodeReleaseValue(
         addonReleased = video?.released ?: item.info.released,
         tmdbAirDate = tmdbData?.airDate,
-        useTmdbReleaseDates = currentTmdbSettings.useReleaseDates
+        useTmdbReleaseDates = false
     )
     val releaseDate = parseEpisodeReleaseDate(released)
     val todayLocal = LocalDate.now(ZoneId.systemDefault())
