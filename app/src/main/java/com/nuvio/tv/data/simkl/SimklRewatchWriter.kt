@@ -18,7 +18,8 @@ import kotlinx.coroutines.launch
  * the write happens after the scrobble instead of on it: nothing can be recorded before the user
  * answers. The write is the one call that carries `allow_rewatch=yes` here, and it always sends an
  * episode with coordinates, so a whole-series write, which would mark every episode and lose the
- * rewatch, is not reachable from this path.
+ * rewatch, is not reachable from this path. A run that is already open is named by its session id, so
+ * the confirmation continues that run instead of opening another one beside it.
  *
  * TV equivalent of mobile `SimklMutationRepository.recordConfirmedRewatch`, `rewatchReachedTheAccount`
  * and `refreshRewatchSessions`. Mobile has them as methods of one `object`; TV keeps them in one
@@ -49,10 +50,20 @@ class SimklRewatchWriter @Inject constructor(
         watchedAtEpochMs: Long
     ): Boolean {
         val resolved = media.resolveAnimeEpisodeForSimkl()
+        // The run this viewing joins, when the account already has one open. Simkl asks for the session
+        // on every write after the one that opened it, so a later confirmation continues that run
+        // instead of leaving the account to pick a session. The sessions are the ones the last read of
+        // the account left, and the refresh below is what keeps them current.
+        val runningSessionId = syncRepository.state.value.snapshot.rewatchSessions
+            .activeRewatchSessionId(resolved)
         val written = runCatching {
             service.addToHistory(
                 items = listOf(
-                    TrackingHistoryItem(media = resolved, watchedAtEpochMs = watchedAtEpochMs)
+                    TrackingHistoryItem(
+                        media = resolved,
+                        watchedAtEpochMs = watchedAtEpochMs,
+                        rewatchId = runningSessionId
+                    )
                 ),
                 allowRewatch = true
             )

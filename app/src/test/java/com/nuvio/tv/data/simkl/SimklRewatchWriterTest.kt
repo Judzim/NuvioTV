@@ -4,8 +4,10 @@ import com.nuvio.tv.core.tracking.TrackingEpisode
 import com.nuvio.tv.core.tracking.TrackingExternalIds
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
+import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -27,6 +29,7 @@ class SimklRewatchWriterTest {
 
     @Test
     fun `a write the account took is the answer`() = runBlocking {
+        accountWithSessions()
         val engine = RecordingEngine(response(201, ADDED_STATUS))
         val remote = FakeRemote(emptyList())
         val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
@@ -44,6 +47,7 @@ class SimklRewatchWriterTest {
 
     @Test
     fun `an episode the history already holds is a session, not a refusal`() = runBlocking {
+        accountWithSessions()
         val engine = RecordingEngine(response(409, NOT_FOUND_CONFLICT))
         val remote = FakeRemote(emptyList())
         val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
@@ -56,6 +60,7 @@ class SimklRewatchWriterTest {
 
     @Test
     fun `a write that came back as an error is answered by the account`() = runBlocking {
+        accountWithSessions()
         val engine = RecordingEngine(response(403))
         val remote = FakeRemote(listOf(sessionRow()))
         val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
@@ -67,6 +72,7 @@ class SimklRewatchWriterTest {
 
     @Test
     fun `a rewatch the account does not carry is reported as not recorded`() = runBlocking {
+        accountWithSessions()
         val engine = RecordingEngine(response(403))
         val remote = FakeRemote(emptyList())
         val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
@@ -74,6 +80,42 @@ class SimklRewatchWriterTest {
         assertFalse(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
 
         assertTrue(remote.reads.get() >= 1)
+    }
+
+    @Test
+    fun `a confirmed rewatch of a run that is already open names its session`() = runBlocking {
+        accountWithSessions(sessionRow().copy(rewatchId = 7482L, rewatchStatus = "active"))
+        val engine = RecordingEngine(response(201, ADDED_STATUS))
+        val writer = SimklRewatchWriter(SimklMutationService(client(engine)), FakeRemote(emptyList()), syncRepository)
+
+        assertTrue(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
+
+        // The run the user is in, named on the write instead of being left to the account to pick.
+        assertTrue("\"rewatch_id\":7482" in engine.bodies.single())
+        assertTrue("\"is_rewatch\":true" in engine.bodies.single())
+    }
+
+    @Test
+    fun `a run that is not running is not named`() = runBlocking {
+        // The session the user closed is not what a new viewing joins, so nothing is pinned and the
+        // account opens the run the write belongs to.
+        accountWithSessions(sessionRow().copy(rewatchId = 7482L, rewatchStatus = "closed"))
+        val engine = RecordingEngine(response(201, ADDED_STATUS))
+        val writer = SimklRewatchWriter(SimklMutationService(client(engine)), FakeRemote(emptyList()), syncRepository)
+
+        assertTrue(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
+
+        assertFalse("rewatch_id" in engine.bodies.single())
+    }
+
+    /**
+     * The account the writer reads its sessions from. They are the ones the last read left, which is
+     * what decides the run a confirmed viewing continues.
+     */
+    private fun accountWithSessions(vararg sessions: SimklLibraryEntry) {
+        every { syncRepository.state } returns MutableStateFlow(
+            SimklSyncState(snapshot = SimklSyncSnapshot(rewatchSessions = sessions.toList()))
+        )
     }
 
     private fun client(engine: RecordingEngine): SimklApiClient = SimklApiClient(
