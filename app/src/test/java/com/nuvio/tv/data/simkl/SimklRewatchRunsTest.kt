@@ -8,6 +8,7 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -166,6 +167,37 @@ class SimklRewatchRunsTest {
         )
     }
 
+    @Test
+    fun `the running session of the item is the one a write joins`() {
+        val sessions = listOf(
+            session(id = 41, status = "completed"),
+            session(id = 42, status = "closed"),
+            session(id = 43, status = " ACTIVE "),
+        )
+
+        // Only the active one is pinned: a finished or closed run is not what a new viewing joins.
+        assertEquals(43L, sessions.activeRewatchSessionId(episode()))
+    }
+
+    @Test
+    fun `a session that is not running, not this item or not a session is never joined`() {
+        val target = episode()
+
+        // Nothing is running, so the write goes without an id and the account opens the session.
+        assertNull(listOf(session(id = 44, status = "closed")).activeRewatchSessionId(target))
+        assertNull(listOf(session(id = 45, status = null)).activeRewatchSessionId(target))
+        // A session of another show belongs to that show.
+        assertNull(
+            listOf(session(id = 46, status = "active", ids = mapOf("imdb" to JsonPrimitive("tt0000001"))))
+                .activeRewatchSessionId(target)
+        )
+        // A canonical row carries no session, whatever else it holds.
+        assertNull(
+            listOf(rewatchRow(listOf(Marked(season = 2, episode = 7)), isRewatch = false))
+                .activeRewatchSessionId(target)
+        )
+    }
+
     private fun runsFor(
         minimumRunEpisodes: Int?,
         rewatched: List<Marked>,
@@ -200,6 +232,30 @@ class SimklRewatchRunsTest {
                 )
             },
         isRewatch = isRewatch,
+    )
+
+    /** One rewatch session of the account, as the read of it returns the row. */
+    private fun session(
+        id: Long?,
+        status: String?,
+        ids: Map<String, JsonPrimitive> = mapOf(
+            "simkl" to JsonPrimitive("39687"),
+            "imdb" to JsonPrimitive("tt5753856"),
+        ),
+    ): SimklLibraryEntry = rewatchRow(listOf(Marked(season = 2, episode = 7)), isRewatch = true)
+        .copy(
+            rewatchId = id,
+            rewatchStatus = status,
+            show = SimklMedia(title = "Dark", year = 2017, ids = ids),
+        )
+
+    /** The item the sessions are looked for: the same show, at the episode the sessions hold. */
+    private fun episode() = TrackingMediaReference(
+        kind = TrackingMediaKind.SHOW,
+        title = "Dark",
+        year = 2017,
+        ids = TrackingExternalIds(imdb = "tt5753856"),
+        episode = TrackingEpisode(season = 2, number = 7),
     )
 
     private data class Marked(

@@ -167,6 +167,32 @@ internal fun List<SimklLibraryEntry>.holdsRewatchAt(
         }
 }
 
+/**
+ * The session a repeat viewing of this item joins, when the account already has one running.
+ *
+ * Simkl asks a client to pin the session on every write after the one that opened it, so the write
+ * lands in the run the user is in instead of in whichever session the account would have picked. Only
+ * a session the account still reports as `active` can be pinned: a closed or finished one is a run the
+ * user ended, and a new viewing must not be written into it.
+ *
+ * The sessions are the ones the last read of the account left. A session a write has opened but the
+ * read has not published yet is simply not pinned, and the account resolves that write on its own,
+ * which is what the client sends today.
+ */
+internal fun List<SimklLibraryEntry>.activeRewatchSessionId(media: TrackingMediaReference): Long? {
+    val target = media.toSimklMedia()
+    return filter { entry ->
+        entry.isRewatch &&
+            entry.media?.matchesTarget(target) == true &&
+            entry.rewatchStatus?.trim()?.equals(ACTIVE_REWATCH_STATUS, ignoreCase = true) == true
+    }
+        .maxByOrNull { entry -> entry.lastWatchedAt?.let(::parseSimklUtcEpochMs) ?: Long.MIN_VALUE }
+        ?.rewatchId
+}
+
+/** The state Simkl reports for the session a run continues in; only that one is ever pinned. */
+private const val ACTIVE_REWATCH_STATUS = "active"
+
 internal fun SimklMedia.rewatchMatchKeys(contentId: String): List<String> = buildList {
     add(contentId)
     ids.idValue("imdb")?.let { imdb -> add(imdb); add("imdb:$imdb") }
