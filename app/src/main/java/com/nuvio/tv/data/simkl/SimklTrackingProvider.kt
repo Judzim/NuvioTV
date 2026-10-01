@@ -107,6 +107,20 @@ class SimklTrackingScrobbler @Inject constructor(
                     "rewatching=${result.rewatchId != null}"
             )
         }
+        // Simkl named the plan the account is on, and it is not the one this client had cached: every
+        // rewatch decision below is gated on that plan, so the cache is corrected where the answer is,
+        // instead of at the next read of the user settings. The watch itself is unaffected, and only
+        // the plan is written, so an account that resubscribes finds its setting as it left it.
+        val planAllowsRewatches = if (result.rewatchStatus == SimklRewatchStatus.PRO_REQUIRED) {
+            Log.i(
+                TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
+                "simkl rewatch plan no longer covers sessions; correcting the cached plan"
+            )
+            authRepository.markPlanAsFree()
+            false
+        } else {
+            isSimklRewatchPlanEligible(accountType)
+        }
         val nowEpochMs = System.currentTimeMillis()
         val watchedAtEpochMs = result.watchedAt?.let(::parseSimklUtcEpochMs) ?: nowEpochMs
         val askToRecord = shouldPromptSimklRewatch(
@@ -119,7 +133,7 @@ class SimklTrackingScrobbler @Inject constructor(
             nowEpochMs = nowEpochMs,
             completionThresholdPercent = completionThresholdPercent
         )
-        if (askToRecord) {
+        if (askToRecord && planAllowsRewatches) {
             rewatchPromptRepository.request(
                 RewatchPrompt(
                     media = enrichedEvent.media,

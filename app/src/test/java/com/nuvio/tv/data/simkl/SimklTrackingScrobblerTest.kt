@@ -17,6 +17,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -297,6 +298,77 @@ class SimklTrackingScrobblerTest {
                 action = TrackingScrobbleAction.START,
                 progressPercent = 0.0,
                 completionThresholdPercent = 80.0
+            )
+        )
+    }
+
+    @Test
+    fun `a repeat viewing on a plan that covers it is asked about`() = runBlocking {
+        connect()
+        watchedEpisode()
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.MANUAL)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 95.0))
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
+
+        // The control for the test below: with the plan the client has cached, a finished repeat
+        // viewing of an episode watched two months ago does raise the question.
+        verify(exactly = 1) { promptRepository.request(any()) }
+        coVerify(exactly = 0) { authRepository.markPlanAsFree() }
+    }
+
+    @Test
+    fun `a stop the account says needs a plan is not turned into a question`() = runBlocking {
+        connect()
+        watchedEpisode()
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.MANUAL)
+        accountAnswers(
+            scrobbleResult(
+                outcome = SimklScrobbleOutcome.SCROBBLE,
+                progress = 95.0,
+                rewatchStatus = SimklRewatchStatus.PRO_REQUIRED
+            )
+        )
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
+
+        // Simkl named the reason instead of dropping the flag silently, so the cached plan is corrected
+        // where the answer is. The question is not asked on the strength of the plan the client had
+        // cached, because the account would drop what the user then confirmed, and the watch itself is
+        // unaffected by any of it.
+        coVerify(exactly = 1) { authRepository.markPlanAsFree() }
+        verify(exactly = 0) { promptRepository.request(any()) }
+        coVerify(exactly = 1) { syncRepository.commitScrobble(any()) }
+    }
+
+    /**
+     * The account with the episode the event names already watched, two months back, so a finished
+     * playback of it is a repeat viewing the app can ask about.
+     */
+    private fun watchedEpisode() {
+        val watchedAt = "2026-08-01T20:00:00Z"
+        every { syncRepository.state } returns MutableStateFlow(
+            SimklSyncState(
+                snapshot = SimklSyncSnapshot(
+                    entries = listOf(
+                        SimklLibraryEntry(
+                            mediaType = SimklMediaType.SHOWS,
+                            status = SimklListStatus.COMPLETED,
+                            lastWatchedAt = watchedAt,
+                            show = SimklMedia(
+                                title = "Dark",
+                                year = 2017,
+                                ids = mapOf("imdb" to JsonPrimitive("tt5753856"))
+                            ),
+                            seasons = listOf(
+                                SimklSeason(
+                                    number = 2,
+                                    episodes = listOf(SimklEpisode(number = 7, watchedAt = watchedAt))
+                                )
+                            )
+                        )
+                    )
+                )
             )
         )
     }
