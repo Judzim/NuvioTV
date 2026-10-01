@@ -185,6 +185,9 @@ internal fun isSimklRewatchPlanEligible(accountType: String?): Boolean {
     return normalized == "pro" || normalized == "vip"
 }
 
+/** The plan Simkl reports for an account without rewatches; the cached plan is corrected to it. */
+internal const val SIMKL_FREE_PLAN = "free"
+
 /** Free-tier accounts cannot record rewatches, so the picker keeps them off and offers an upgrade. */
 internal fun isSimklRewatchModeSelectable(
     mode: SimklRewatchMode,

@@ -259,6 +259,59 @@ class SimklAuthRepositoryTest {
         assertTrue(harness.engine.requests.isEmpty())
     }
 
+    @Test
+    fun `a stop that says rewatches need a plan corrects the cached one`() = runTest {
+        val harness = Harness()
+        harness.storage.completePinAuthorization("secret-token", harness.storage.currentScope())
+        harness.storage.saveIdentity("viewer", 42, accountType = "pro")
+
+        assertTrue(harness.repository.markPlanAsFree())
+
+        assertEquals("free", harness.storage.state.value.accountType)
+        assertFalse(isSimklRewatchPlanEligible(harness.storage.state.value.accountType))
+        // Only the plan moves. The identity the app already knows is kept, and nothing is asked of the
+        // account: the answer that said the plan no longer covers rewatches is the one being acted on.
+        assertEquals("viewer", harness.storage.state.value.username)
+        assertEquals(42L, harness.storage.state.value.accountId)
+        assertTrue(harness.engine.requests.isEmpty())
+    }
+
+    @Test
+    fun `a corrected plan is read again, so a resubscription is picked up`() = runTest {
+        val harness = Harness(
+            response(200, """{"user":{"name":"viewer"},"account":{"id":42,"type":"vip"}}""")
+        )
+        harness.storage.completePinAuthorization("secret-token", harness.storage.currentScope())
+        harness.storage.saveIdentity("viewer", 42, accountType = "pro")
+
+        assertTrue(harness.repository.markPlanAsFree())
+        // A plan that does not prove Pro or VIP is read again, which is where the upgrade arrives.
+        assertEquals("vip", harness.repository.ensurePlanLoaded())
+
+        assertEquals("vip", harness.storage.state.value.accountType)
+    }
+
+    @Test
+    fun `a plan without rewatches already is left as it is`() = runTest {
+        val harness = Harness()
+        harness.storage.completePinAuthorization("secret-token", harness.storage.currentScope())
+        harness.storage.saveIdentity("viewer", 42, accountType = "free")
+
+        assertFalse(harness.repository.markPlanAsFree())
+
+        assertEquals("free", harness.storage.state.value.accountType)
+        assertTrue(harness.engine.requests.isEmpty())
+    }
+
+    @Test
+    fun `a disconnected account has no plan to correct`() = runTest {
+        val harness = Harness()
+
+        assertFalse(harness.repository.markPlanAsFree())
+
+        assertTrue(harness.engine.requests.isEmpty())
+    }
+
     private class Harness(
         vararg responses: SimklRawHttpResponse,
         configuration: SimklApiConfiguration = SimklApiConfiguration("client-id", "nuvio", "1.0")
