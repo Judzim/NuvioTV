@@ -317,6 +317,7 @@ private fun PlaybackNavHost(
             val heroBackdropUrl = detailArgs?.getString("heroBackdropUrl")?.takeIf { it.isNotBlank() }
             val playOnLoad = detailArgs?.getString("playOnLoad")?.toBooleanStrictOrNull() == true
             val manualSelection = detailArgs?.getString("manualSelection")?.toBooleanStrictOrNull() == true
+            DetailChildHost(parentNavController = navController) { childNav ->
             MetaDetailsScreen(
                 returnFocusSeason = returnFocusSeason,
                 returnFocusEpisode = returnFocusEpisode,
@@ -341,10 +342,10 @@ private fun PlaybackNavHost(
                     }
                 },
                 onNavigateToCastDetail = { personId, personName, preferCrew ->
-                    navController.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew))
+                    childNav.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew))
                 },
                 onNavigateToTmdbEntityBrowse = { entityKind, entityId, entityName, sourceType ->
-                    navController.navigate(
+                    childNav.navigate(
                         Screen.TmdbEntityBrowse.createRoute(
                             entityKind = entityKind,
                             entityId = entityId,
@@ -354,7 +355,7 @@ private fun PlaybackNavHost(
                     )
                 },
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                    childNav.navigateNestedDetail(itemId, itemType, addonBaseUrl)
                 },
                 onPlayClick = { videoId, contentType, contentId, title, poster, backdrop, logo, season, episode, episodeName, genres, year, runtime, contentLanguage ->
                     navController.navigate(
@@ -425,6 +426,7 @@ private fun PlaybackNavHost(
                     )
                 }
             )
+            }
         }
 
         composable(
@@ -895,6 +897,9 @@ private fun PlaybackNavHost(
                     }
 
                     when {
+                        playbackCompleted && contentId.isNotBlank() -> {
+                            returnToDetail()
+                        }
                         episodeChangedInPlace && autoPlayEnabled -> {
                             // autoplay moved to next episode — skip Stream, go to detail
                             if (returnToDetailOnBack && contentType.equals("series", ignoreCase = true) && contentId.isNotBlank()) {
@@ -934,18 +939,12 @@ private fun PlaybackNavHost(
                             }
                         }
                         else -> {
-                            // normal back — skip Stream screen if episode/movie was completed
-                            val skipStreamScreen = playbackCompleted && contentId.isNotBlank()
-                            if (skipStreamScreen) {
-                                returnToDetail()
-                            } else {
-                                val returnedToStream = popBackToStream()
-                                if (!returnedToStream) {
-                                    if (returnToDetailOnBack && contentType.equals("series", ignoreCase = true) && contentId.isNotBlank()) {
-                                        returnToDetail()
-                                    } else {
-                                        navController.popBackStack()
-                                    }
+                            val returnedToStream = popBackToStream()
+                            if (!returnedToStream) {
+                                if (returnToDetailOnBack && contentType.equals("series", ignoreCase = true) && contentId.isNotBlank()) {
+                                    returnToDetail()
+                                } else {
+                                    navController.popBackStack()
                                 }
                             }
                         }

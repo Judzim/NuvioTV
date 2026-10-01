@@ -687,7 +687,6 @@ internal fun TrackingSettingsOverview(
                                  * percent in the range and not only on the default steps.
                                  */
                                 SliderSettingsItem(
-                                    icon = null,
                                     title = stringResource(R.string.settings_tracking_completion_title),
                                     subtitle = stringResource(R.string.settings_tracking_completion_subtitle),
                                     value = trackingState.simklWatchedThresholdPercent,
