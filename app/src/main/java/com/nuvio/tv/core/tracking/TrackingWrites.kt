@@ -26,7 +26,14 @@ enum class TrackingListStatus(val wireValue: String) {
 
 data class TrackingHistoryItem(
     val media: TrackingMediaReference,
-    val watchedAtEpochMs: Long? = null
+    val watchedAtEpochMs: Long? = null,
+    /**
+     * The viewing session this write belongs to, for a provider that keeps rewatches as sessions
+     * beside the watch history. Simkl asks for it on every write after the one that opened the
+     * session, so a run is continued rather than forked. Providers without the concept leave it unset
+     * and it is then never sent.
+     */
+    val rewatchId: Long? = null
 )
 
 data class TrackingScrobbleEvent(

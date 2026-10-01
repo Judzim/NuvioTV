@@ -94,7 +94,8 @@ private fun buildHistoryRequest(
             item.media.toHistoryItemDto(
                 watchedAtEpochMs = item.watchedAtEpochMs.takeIf { includeWatchedAt },
                 includeWatchedAt = includeWatchedAt,
-                isRewatch = isRewatch
+                isRewatch = isRewatch,
+                rewatchId = item.rewatchId
             )
         }
     val shows = items.filter { item -> item.media.kind != TrackingMediaKind.MOVIE }
@@ -111,12 +112,16 @@ private fun buildShowHistoryItem(
 ): SimklHistoryItemDto {
     val first = items.first()
     val parentMutation = items.lastOrNull { item -> item.media.episode == null }
+    // The session the write belongs to is carried by the item, not by the episode: Simkl documents it
+    // as a field of the movie or show entry.
+    val rewatchId = (parentMutation ?: first).rewatchId
     if (parentMutation != null) {
         return parentMutation.media.toHistoryItemDto(
             watchedAtEpochMs = parentMutation.watchedAtEpochMs.takeIf { includeWatchedAt },
             includeWatchedAt = includeWatchedAt,
             status = if (includeWatchedAt) TrackingListStatus.COMPLETED.wireValue else null,
-            isRewatch = isRewatch
+            isRewatch = isRewatch,
+            rewatchId = rewatchId
         )
     }
 
@@ -146,7 +151,8 @@ private fun buildShowHistoryItem(
         episodes = flatEpisodes,
         seasons = seasons,
         useTvdbAnimeSeasons = first.media.kind == TrackingMediaKind.ANIME && seasons.isNotEmpty(),
-        isRewatch = isRewatch
+        isRewatch = isRewatch,
+        rewatchId = rewatchId
     )
 }
 
@@ -157,7 +163,8 @@ private fun TrackingMediaReference.toHistoryItemDto(
     episodes: List<SimklEpisodeMutationDto> = emptyList(),
     seasons: List<SimklSeasonMutationDto> = emptyList(),
     useTvdbAnimeSeasons: Boolean = false,
-    isRewatch: Boolean = false
+    isRewatch: Boolean = false,
+    rewatchId: Long? = null
 ): SimklHistoryItemDto = SimklHistoryItemDto(
     title = title.nonBlankOrNull(),
     year = year,
@@ -167,7 +174,8 @@ private fun TrackingMediaReference.toHistoryItemDto(
     episodes = episodes,
     seasons = seasons,
     useTvdbAnimeSeasons = useTvdbAnimeSeasons,
-    isRewatch = isRewatch.takeIf { it }
+    isRewatch = isRewatch.takeIf { it },
+    rewatchId = rewatchId
 )
 
 private fun TrackingMediaReference.toScrobbleMediaDto(): SimklScrobbleMediaDto =
@@ -268,7 +276,8 @@ private data class SimklHistoryItemDto(
     val episodes: List<SimklEpisodeMutationDto> = emptyList(),
     val seasons: List<SimklSeasonMutationDto> = emptyList(),
     @SerialName("use_tvdb_anime_seasons") val useTvdbAnimeSeasons: Boolean = false,
-    @SerialName("is_rewatch") val isRewatch: Boolean? = null
+    @SerialName("is_rewatch") val isRewatch: Boolean? = null,
+    @SerialName("rewatch_id") val rewatchId: Long? = null
 )
 
 @Serializable

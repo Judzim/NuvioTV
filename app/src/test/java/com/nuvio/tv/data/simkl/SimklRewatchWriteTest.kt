@@ -66,6 +66,41 @@ class SimklRewatchWriteTest {
     }
 
     @Test
+    fun `a write into a running session names it, a write that opens one does not`() {
+        val episode = TrackingEpisode(season = 2, number = 7)
+
+        // Continuing a run: the session rides on the show entry, which is where Simkl documents it, and
+        // not on the episode that carries the coordinates.
+        val continued = buildSimklHistoryMutationBody(
+            listOf(TrackingHistoryItem(show(episode = episode), WATCHED_AT, rewatchId = 21284L)),
+            isRewatch = true
+        ).asObject().getValue("shows").jsonArray.single().jsonObject
+        assertEquals("21284", continued.getValue("rewatch_id").jsonPrimitive.content)
+        val continuedEpisode = continued.getValue("seasons").jsonArray.single().jsonObject
+            .getValue("episodes").jsonArray.single().jsonObject
+        assertNull(continuedEpisode["rewatch_id"])
+
+        // Opening a run: there is nothing to continue yet, so no id is guessed and none is sent.
+        val opening = buildSimklHistoryMutationBody(
+            listOf(TrackingHistoryItem(show(episode = episode), WATCHED_AT)),
+            isRewatch = true
+        ).asObject().getValue("shows").jsonArray.single().jsonObject
+        assertNull(opening["rewatch_id"])
+
+        // A movie is one watch, so its session is the write itself and rides the same way.
+        val movieItem = buildSimklHistoryMutationBody(
+            listOf(TrackingHistoryItem(movie(), WATCHED_AT, rewatchId = 991L)),
+            isRewatch = true
+        ).asObject().getValue("movies").jsonArray.single().jsonObject
+        assertEquals("991", movieItem.getValue("rewatch_id").jsonPrimitive.content)
+
+        // A removal carries neither the flag nor a session.
+        val removal = buildSimklHistoryRemovalBody(listOf(show(episode = episode)))
+            .asObject().getValue("shows").jsonArray.single().jsonObject
+        assertNull(removal["rewatch_id"])
+    }
+
+    @Test
     fun `the rewatch write asks for a rewatch and reads the conflict as the session it is`() = runBlocking {
         val engine = RecordingEngine(response(409, NOT_FOUND_CONFLICT))
         val service = SimklMutationService(client(engine))
