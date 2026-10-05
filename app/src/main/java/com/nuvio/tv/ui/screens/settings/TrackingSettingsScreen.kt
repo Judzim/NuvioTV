@@ -57,6 +57,7 @@ fun TrackingSettingsScreen(
     val traktState by traktViewModel.uiState.collectAsStateWithLifecycle()
     val simklState by simklViewModel.uiState.collectAsStateWithLifecycle()
     val mdbListState by mdbListViewModel.uiState.collectAsStateWithLifecycle()
+    val mdbListLibraryLists by mdbListViewModel.libraryLists.collectAsStateWithLifecycle()
     val trackingState by trackingViewModel.uiState.collectAsStateWithLifecycle()
     val rewatchUpgradeRequested by trackingViewModel.rewatchUpgradeRequested.collectAsStateWithLifecycle()
     val traktFocusRequester = remember { FocusRequester() }
@@ -79,6 +80,7 @@ fun TrackingSettingsScreen(
     var showRewatchModeDialog by remember { mutableStateOf(false) }
     var showRewatchNextUpDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var showMdbListLibraryListsDialog by remember { mutableStateOf(false) }
 
     val hasOverlay = activeProvider != null ||
         disconnectProvider != null ||
@@ -89,7 +91,8 @@ fun TrackingSettingsScreen(
         showAnimeIdDialog ||
         showRewatchModeDialog ||
         showRewatchNextUpDialog ||
-        rewatchUpgradeRequested
+        rewatchUpgradeRequested ||
+        showMdbListLibraryListsDialog
 
     BackHandler(enabled = !hasOverlay) {
         onBackPress()
@@ -219,6 +222,11 @@ fun TrackingSettingsScreen(
         },
         onRewatchNextUpClick = {
             showRewatchNextUpDialog = true
+        },
+        mdbListLibraryLists = mdbListLibraryLists,
+        onMdbListLibraryListsClick = {
+            mdbListViewModel.onLibraryListsOpened()
+            showMdbListLibraryListsDialog = true
         }
     )
 
@@ -424,6 +432,14 @@ fun TrackingSettingsScreen(
         )
     }
 
+    if (showMdbListLibraryListsDialog) {
+        MdbListLibraryListsDialog(
+            state = mdbListLibraryLists,
+            onToggle = mdbListViewModel::onToggleLibraryList,
+            onDismiss = { showMdbListLibraryListsDialog = false }
+        )
+    }
+
     if (showAnimeIdDialog) {
         SettingsSingleChoiceDialog(
             title = stringResource(R.string.tracking_simkl_anime_id_title),
@@ -520,7 +536,9 @@ internal fun TrackingSettingsOverview(
     onAnimeIdClick: () -> Unit,
     onWatchedThresholdChange: (Int) -> Unit = {},
     onRewatchModeClick: () -> Unit = {},
-    onRewatchNextUpClick: () -> Unit = {}
+    onRewatchNextUpClick: () -> Unit = {},
+    mdbListLibraryLists: MdbListLibraryListsUiState = MdbListLibraryListsUiState(),
+    onMdbListLibraryListsClick: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val traktPresentation = traktConnectionPresentation(traktState)
@@ -714,6 +732,24 @@ internal fun TrackingSettingsOverview(
                                     value = simklRewatchNextUpModeLabel(trackingState.simklRewatchNextUpMode),
                                     onClick = onRewatchNextUpClick,
                                     modifier = Modifier.testTag(TrackingSettingsTestTags.REWATCH_NEXT_UP)
+                                )
+                            }
+                        }
+                    }
+                    if (mdbListState.isConnected) {
+                        item(key = "tracking_mdblist_features") {
+                            SettingsGroupCard(
+                                title = stringResource(R.string.tracking_mdblist_features_title),
+                                subtitle = stringResource(R.string.tracking_mdblist_features_subtitle)
+                            ) {
+                                SettingsActionRow(
+                                    title = stringResource(R.string.mdblist_library_lists),
+                                    subtitle = stringResource(R.string.mdblist_library_lists_description),
+                                    value = mdbListLibraryLists.lists.takeIf { it.isNotEmpty() }?.let { lists ->
+                                        stringResource(R.string.mdblist_library_lists_summary, lists.count { it.visible }, lists.size)
+                                    },
+                                    onClick = onMdbListLibraryListsClick,
+                                    modifier = Modifier.testTag(TrackingSettingsTestTags.MDBLIST_LIBRARY_LISTS)
                                 )
                             }
                         }
@@ -916,6 +952,7 @@ internal object TrackingSettingsTestTags {
     const val TRAKT_PROVIDER = "tracking_provider_trakt"
     const val SIMKL_PROVIDER = "tracking_provider_simkl"
     const val MDBLIST_PROVIDER = "tracking_provider_mdblist"
+    const val MDBLIST_LIBRARY_LISTS = "tracking_mdblist_library_lists"
     const val LIBRARY_SOURCE = "tracking_source_library"
     const val WATCH_PROGRESS_SOURCE = "tracking_source_watch_progress"
     const val CONTINUE_WATCHING = "tracking_trakt_continue_watching"
