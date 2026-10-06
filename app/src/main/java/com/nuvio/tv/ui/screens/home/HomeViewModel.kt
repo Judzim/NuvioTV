@@ -363,6 +363,7 @@ class HomeViewModel @Inject constructor(
             watchedSeriesStateHolder.loadFromDisk()
             observeExternalMetaPrefetchPreference()
             observeContinueWatchingSortMode()
+            observeRewatchRuns()
             loadHomeCatalogOrderPreference()
             loadFollowAddonsOrder()
             loadDisabledHomeCatalogPreference()
@@ -490,6 +491,28 @@ class HomeViewModel @Inject constructor(
                         return@collect
                     }
                     // Clear caches so the new sort is applied immediately on next pipeline run
+                    clearAllCwInMemoryCaches()
+                }
+        }
+    }
+
+    /**
+     * Rewatches in Continue Watching: the runs decide which series the row follows, and the caches hold
+     * the answers for the previous ones per content id. A run that appears or moves (a confirmed
+     * rewatch, a sync, or the mode setting re-deriving them) has to drop those answers, or the row
+     * keeps the one it already had until the app restarts.
+     */
+    private fun observeRewatchRuns() {
+        viewModelScope.launch {
+            var initial = true
+            simklSyncRepository.state
+                .map { state -> state.snapshot.rewatchRuns }
+                .distinctUntilChanged()
+                .collect {
+                    if (initial) {
+                        initial = false
+                        return@collect
+                    }
                     clearAllCwInMemoryCaches()
                 }
         }

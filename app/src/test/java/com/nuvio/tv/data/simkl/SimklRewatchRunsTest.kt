@@ -91,9 +91,7 @@ class SimklRewatchRunsTest {
     }
 
     @Test
-    fun `sessions of the same series are merged before the chain is built`() {
-        // Simkl splits a running rewatch into a new session once the same episode is rewatched, and the
-        // run continues across the split, so both rows have to be read together.
+    fun `several running rows of the same series are read together`() {
         val rows = listOf(
             rewatchRow(rewatched = listOf(Marked(season = 1, episode = 1)), isRewatch = true),
             rewatchRow(rewatched = listOf(Marked(season = 1, episode = 2, watchedAt = NEWER)), isRewatch = true),
@@ -103,6 +101,53 @@ class SimklRewatchRunsTest {
 
         assertEquals(1, runs.size)
         assertEquals(2, runs.single().episodeNumber)
+    }
+
+    @Test
+    fun `a session the account closed is not the run`() {
+        val rows = listOf(
+            rewatchRow(
+                rewatched = listOf(
+                    Marked(season = 1, episode = 1),
+                    Marked(season = 1, episode = 2, watchedAt = NEWER),
+                ),
+                isRewatch = true,
+                status = "closed",
+            ),
+        )
+
+        assertTrue(deriveSimklRewatchRuns(entries = rows, minimumRunEpisodes = 1).isEmpty())
+    }
+
+    @Test
+    fun `the running session decides, a closed one beside it is not read`() {
+        // Simkl closes the session and opens a fresh one when the same episode is rewatched days later,
+        // so the older row holds more episodes than the one the user is actually in. The row follows the
+        // running session, never the longer chain of the closed one.
+        val rows = listOf(
+            rewatchRow(
+                rewatched = listOf(
+                    Marked(season = 1, episode = 1),
+                    Marked(season = 1, episode = 2),
+                    Marked(season = 1, episode = 3),
+                    Marked(season = 1, episode = 4),
+                    Marked(season = 1, episode = 5, watchedAt = OLD),
+                ),
+                isRewatch = true,
+                status = "closed",
+            ),
+            rewatchRow(
+                rewatched = listOf(Marked(season = 1, episode = 1, watchedAt = NEWER)),
+                isRewatch = true,
+                status = "active",
+            ),
+        )
+
+        val run = deriveSimklRewatchRuns(entries = rows, minimumRunEpisodes = 1).single()
+
+        assertEquals(1, run.seasonNumber)
+        assertEquals(1, run.episodeNumber)
+        assertEquals(parseSimklUtcEpochMs(NEWER)!!, run.markedAtEpochMs)
     }
 
     @Test
@@ -209,6 +254,7 @@ class SimklRewatchRunsTest {
     private fun rewatchRow(
         rewatched: List<Marked>,
         isRewatch: Boolean,
+        status: String? = "active",
     ): SimklLibraryEntry = SimklLibraryEntry(
         mediaType = SimklMediaType.SHOWS,
         status = SimklListStatus.COMPLETED,
@@ -232,6 +278,7 @@ class SimklRewatchRunsTest {
                 )
             },
         isRewatch = isRewatch,
+        rewatchStatus = status.takeIf { isRewatch },
     )
 
     /** One rewatch session of the account, as the read of it returns the row. */

@@ -11,8 +11,9 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
  * all. The sessions are the only place that knows where the run is, and they live on the account, so
  * a run read from here shows up on every device the user signs in on.
  *
- * Sessions are merged per series first, because Simkl splits a running rewatch into a new session
- * once the same episode is rewatched 48 hours later; the run itself continues across the split.
+ * Only the session the account still reports as running is read. Simkl closes a session and opens a
+ * fresh one once the same episode is rewatched days later, and a closed or finished one is a run the
+ * user left, so reading the sessions together would put the row back on a position the user is not in.
  * Episodes then have to form a chain of consecutive numbers inside one season, and the chain holding
  * the most recently rewatched episode is the run. How long that chain has to be is the user's
  * choice; see [SimklRewatchNextUpMode].
@@ -27,7 +28,9 @@ internal fun deriveSimklRewatchRuns(
     minimumRunEpisodes: Int?,
 ): List<RewatchRunPosition> {
     val requiredEpisodes = minimumRunEpisodes ?: return emptyList()
-    val sessions = entries.filter { entry -> entry.isRewatch && entry.media != null }
+    val sessions = entries.filter { entry ->
+        entry.isRewatch && entry.media != null && entry.isRunningRewatchSession()
+    }
     if (sessions.isEmpty()) return emptyList()
     return sessions
         .groupBy { entry -> entry.media?.canonicalContentId().orEmpty() }
@@ -184,7 +187,7 @@ internal fun List<SimklLibraryEntry>.activeRewatchSessionId(media: TrackingMedia
     return filter { entry ->
         entry.isRewatch &&
             entry.media?.matchesTarget(target) == true &&
-            entry.rewatchStatus?.trim()?.equals(ACTIVE_REWATCH_STATUS, ignoreCase = true) == true
+            entry.isRunningRewatchSession()
     }
         .maxByOrNull { entry -> entry.lastWatchedAt?.let(::parseSimklUtcEpochMs) ?: Long.MIN_VALUE }
         ?.rewatchId
@@ -192,6 +195,10 @@ internal fun List<SimklLibraryEntry>.activeRewatchSessionId(media: TrackingMedia
 
 /** The state Simkl reports for the session a run continues in; only that one is ever pinned. */
 private const val ACTIVE_REWATCH_STATUS = "active"
+
+/** True when the account reports this row as the session still running for its item. */
+internal fun SimklLibraryEntry.isRunningRewatchSession(): Boolean =
+    rewatchStatus?.trim()?.equals(ACTIVE_REWATCH_STATUS, ignoreCase = true) == true
 
 internal fun SimklMedia.rewatchMatchKeys(contentId: String): List<String> = buildList {
     add(contentId)
