@@ -33,7 +33,7 @@ class SimklTrackingScrobblerTest {
     private val authRepository = mockk<SimklAuthRepository>(relaxed = true)
     private val syncRepository = mockk<SimklSyncRepository>(relaxed = true)
     private val mutationService = mockk<SimklMutationService>(relaxed = true)
-    private val promptRepository = mockk<SimklRewatchPromptRepository>(relaxed = true)
+    private val consentRepository = mockk<SimklRewatchConsentRepository>(relaxed = true)
 
     /*
      * The rewatch mode and the completion threshold are read by the scrobbler from
@@ -54,7 +54,7 @@ class SimklTrackingScrobblerTest {
         authRepository = authRepository,
         syncRepository = syncRepository,
         mutationService = mutationService,
-        rewatchPromptRepository = promptRepository,
+        rewatchConsentRepository = consentRepository,
         settingsDataStore = settingsDataStore
     )
 
@@ -149,15 +149,16 @@ class SimklTrackingScrobblerTest {
     }
 
     @Test
-    fun `the question stays down while the rewatch mode is the default one`() = runBlocking {
+    fun `no question is raised while the rewatch mode is the default one`() = runBlocking {
         connect()
-        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 95.0))
+        watchedEpisode()
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.START, progress = 0.0))
 
-        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
+        scrobbler.scrobble(TrackingScrobbleAction.START, event(progressPercent = 0.0))
 
         // There is nothing in the store, so the mode is the documented default (OFF): the question
-        // has nothing to ask and nothing is written without a confirmation.
-        verify(exactly = 0) { promptRepository.request(any()) }
+        // has nothing to ask, and nothing is written without an answer.
+        verify(exactly = 0) { consentRepository.ask(any()) }
     }
 
     @Test
@@ -303,25 +304,86 @@ class SimklTrackingScrobblerTest {
     }
 
     @Test
-    fun `a repeat viewing on a plan that covers it is asked about`() = runBlocking {
+    fun `a playback of something already watched asks before it begins`() = runBlocking {
         connect()
         watchedEpisode()
-        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.MANUAL)
-        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 95.0))
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.START, progress = 0.0))
 
-        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
+        scrobbler.scrobble(TrackingScrobbleAction.START, event(progressPercent = 0.0))
 
-        // The control for the test below: with the plan the client has cached, a finished repeat
-        // viewing of an episode watched two months ago does raise the question.
-        verify(exactly = 1) { promptRepository.request(any()) }
+        // The question is raised while the playback is beginning, and its answer is what the stop at
+        // the end of that playback writes from.
+        verify(exactly = 1) { consentRepository.ask(any()) }
         coVerify(exactly = 0) { authRepository.markPlanAsFree() }
     }
 
     @Test
-    fun `a stop the account says needs a plan is not turned into a question`() = runBlocking {
+    fun `a finished stop carries the answer into the write`() = runBlocking {
         connect()
         watchedEpisode()
-        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.MANUAL)
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        every { consentRepository.grantedFor(any()) } returns true
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 95.0))
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
+
+        // The user said yes before the playback, so the stop asks Simkl for the rewatch. The mocked
+        // answer defaults to false and this would be recordRewatch = false without that answer.
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.STOP,
+                event = any(),
+                recordRewatch = true,
+                completionThresholdPercent = 80.0
+            )
+        }
+    }
+
+    @Test
+    fun `a finished stop with a run open writes into it without asking`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        every { syncRepository.state } returns MutableStateFlow(
+            SimklSyncState(
+                snapshot = SimklSyncSnapshot(
+                    rewatchSessions = listOf(
+                        SimklLibraryEntry(
+                            mediaType = SimklMediaType.SHOWS,
+                            isRewatch = true,
+                            rewatchId = 7482L,
+                            rewatchStatus = "active",
+                            show = SimklMedia(
+                                title = "Dark",
+                                year = 2017,
+                                ids = mapOf("imdb" to JsonPrimitive("tt5753856"))
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 95.0))
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
+
+        // The run is on the account, so the stop continues it, and no question stands in the way.
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.STOP,
+                event = any(),
+                recordRewatch = true,
+                completionThresholdPercent = 80.0
+            )
+        }
+        verify(exactly = 0) { consentRepository.ask(any()) }
+    }
+
+    @Test
+    fun `a stop the account says needs a plan corrects the plan and asks nothing`() = runBlocking {
+        connect()
+        watchedEpisode()
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
         accountAnswers(
             scrobbleResult(
                 outcome = SimklScrobbleOutcome.SCROBBLE,
@@ -337,7 +399,7 @@ class SimklTrackingScrobblerTest {
         // cached, because the account would drop what the user then confirmed, and the watch itself is
         // unaffected by any of it.
         coVerify(exactly = 1) { authRepository.markPlanAsFree() }
-        verify(exactly = 0) { promptRepository.request(any()) }
+        verify(exactly = 0) { consentRepository.ask(any()) }
         coVerify(exactly = 1) { syncRepository.commitScrobble(any()) }
     }
 

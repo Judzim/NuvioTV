@@ -6,12 +6,15 @@ import com.nuvio.tv.core.tracking.TrackingScrobbleAction
  * How Nuvio records rewatches on Simkl.
  *
  * Simkl requires an explicit opt-in for rewatch bookkeeping, so the default is [OFF].
- * [AUTOMATIC] sends `allow_rewatch=yes` on every finished playback, [MANUAL] asks after the
- * playback instead and only writes when the user confirms.
+ * [AUTOMATIC] sends `allow_rewatch=yes` on every finished playback, [SEMI_AUTOMATIC] asks once
+ * before a playback that would open a run and records the rest of the run without asking.
+ *
+ * The mode only says how a run is started. A run the account holds is shown by Continue Watching
+ * while either of the two recording modes is on, and never while it is [OFF].
  */
 enum class SimklRewatchMode {
     OFF,
-    MANUAL,
+    SEMI_AUTOMATIC,
     AUTOMATIC,
     ;
 
@@ -20,6 +23,10 @@ enum class SimklRewatchMode {
 
         fun fromStorage(value: String?): SimklRewatchMode {
             val normalized = value?.trim().orEmpty()
+            // "MANUAL" is the mode the first version of the setting shipped as; it asked for the
+            // same consent, only after the playback instead of before it, so the stored answer
+            // keeps its meaning and no migration is needed.
+            if (normalized.equals("MANUAL", ignoreCase = true)) return SEMI_AUTOMATIC
             return entries.firstOrNull { mode -> mode.name.equals(normalized, ignoreCase = true) } ?: Default
         }
     }
@@ -122,8 +129,11 @@ internal val SIMKL_REWATCH_RECHECK_DELAYS_MS = longArrayOf(2_000L, 5_000L)
 internal val SIMKL_ALLOW_REWATCH_QUERY: Map<String, String> = mapOf("allow_rewatch" to "yes")
 
 /**
- * Whether the scrobble call itself should carry `allow_rewatch=yes`. Only automatic mode does that,
- * because a confirmed rewatch is written after the fact through `/sync/history`.
+ * Whether the scrobble call itself should carry `allow_rewatch=yes`.
+ *
+ * [AUTOMATIC] asks for a rewatch on every finished playback. [SEMI_AUTOMATIC] does it only where
+ * the user said so: a run of the item is open on the account, or the question before the playback
+ * was answered with yes. A semi-automatic write is therefore never the client guessing at a run.
  */
 internal fun shouldRecordSimklRewatchOnStop(
     mode: SimklRewatchMode,
@@ -131,36 +141,40 @@ internal fun shouldRecordSimklRewatchOnStop(
     action: TrackingScrobbleAction,
     progressPercent: Double,
     completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
+    hasRunningSession: Boolean = false,
+    consented: Boolean = false,
 ): Boolean = when {
-    mode != SimklRewatchMode.AUTOMATIC -> false
+    mode == SimklRewatchMode.OFF -> false
     !isSimklRewatchPlanEligible(accountType) -> false
     action != TrackingScrobbleAction.STOP -> false
     progressPercent < completionThresholdPercent -> false
-    else -> true
+    mode == SimklRewatchMode.AUTOMATIC -> true
+    else -> hasRunningSession || consented
 }
 
 /**
- * Whether the user should be asked to record the playback Simkl just accepted as a repeat viewing.
+ * Whether to ask, before a playback starts, whether it opens a new rewatch run.
  *
- * The question is only worth asking when Simkl would create a session for it: the plan has to allow
- * rewatches and the item has to be in the user's history already. A watch from the last 48 hours is
- * skipped, because Simkl folds those into the existing session and a confirmation would do nothing.
+ * The question is only worth asking where Simkl would open a session for the playback: the plan has
+ * to allow rewatches, the item has to be in the user's history already, and its last watch has to
+ * be older than 48 hours, or Simkl folds the new one into it and a yes would change nothing. A run
+ * that is already open never asks: the playback is simply written into it.
+ *
+ * Only [SimklRewatchMode.SEMI_AUTOMATIC] asks. The answer is carried to the end of the playback,
+ * where it decides whether the scrobble asks Simkl for a rewatch (see [shouldRecordSimklRewatchOnStop]).
  */
-internal fun shouldPromptSimklRewatch(
+internal fun shouldAskToStartSimklRewatch(
     mode: SimklRewatchMode,
     accountType: String?,
     action: TrackingScrobbleAction,
-    outcome: SimklScrobbleOutcome,
-    progressPercent: Double,
     priorWatch: SimklPriorWatch,
     nowEpochMs: Long,
-    completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
+    hasRunningSession: Boolean,
 ): Boolean {
-    if (mode != SimklRewatchMode.MANUAL) return false
+    if (mode != SimklRewatchMode.SEMI_AUTOMATIC) return false
     if (!isSimklRewatchPlanEligible(accountType)) return false
-    if (action != TrackingScrobbleAction.STOP) return false
-    if (outcome != SimklScrobbleOutcome.SCROBBLE) return false
-    if (progressPercent < completionThresholdPercent) return false
+    if (action != TrackingScrobbleAction.START) return false
+    if (hasRunningSession) return false
     if (!priorWatch.wasWatched) return false
     val watchedAt = priorWatch.watchedAtEpochMs ?: return true
     return nowEpochMs - watchedAt >= SIMKL_REWATCH_MIN_GAP_MS

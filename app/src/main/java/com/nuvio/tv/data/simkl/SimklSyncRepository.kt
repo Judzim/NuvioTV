@@ -178,7 +178,7 @@ class SimklSyncRepository @Inject constructor(
             val runs = runCatching {
                 deriveSimklRewatchRuns(
                     entries = sessions,
-                    minimumRunEpisodes = minimumRewatchRunEpisodes()
+                    offerRuns = offersSimklRewatchRuns()
                 )
             }.getOrElse { error ->
                 Log.w(TAG, "Could not read the runs out of the rewatch sessions", error)
@@ -207,7 +207,7 @@ class SimklSyncRepository @Inject constructor(
         }
 
     /**
-     * Re-derives the runs after the user changed how much of a rewatch should be offered.
+     * Re-derives the runs after the user changed how rewatches are recorded.
      *
      * The sessions of the last read are kept on the snapshot, so the row follows the setting at once
      * instead of at the next sync, and it works offline. With nothing read yet there is nothing to
@@ -220,7 +220,7 @@ class SimklSyncRepository @Inject constructor(
         val runs = runCatching {
             deriveSimklRewatchRuns(
                 entries = sessions,
-                minimumRunEpisodes = minimumRewatchRunEpisodes()
+                offerRuns = offersSimklRewatchRuns()
             )
         }.getOrElse { error ->
             Log.w(TAG, "Could not re-derive the runs after a setting change", error)
@@ -327,18 +327,18 @@ class SimklSyncRepository @Inject constructor(
     }
 
     /*
-     * Difference from mobile: mobile reads `simklRewatchNextUpMode` from `TrackingSettingsRepository`.
-     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where the
-     * keys live. The callers are `suspend`, so the read is a single `first()`; the mode maps to the
-     * number of episodes the rewatch chain needs before it is shown at all.
+     * Difference from mobile: mobile reads the rewatch setting from `TrackingSettingsRepository`.
+     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where
+     * the keys live. The callers are `suspend`, so the read is a single `first()`; while the mode is
+     * off, the runs are dropped, so the row never offers a session the app would not write into.
      */
-    private suspend fun minimumRewatchRunEpisodes(): Int? =
-        settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes
+    private suspend fun offersSimklRewatchRuns(): Boolean =
+        settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF
 
     /*
      * Difference from mobile: mobile reads `simklWatchedThresholdPercent` from `TrackingSettingsRepository`.
      * TV has no such `object` repository for UI state, so the threshold is read from `TraktSettingsDataStore`,
-     * the same as `simklRewatchNextUpMode`. The projection is `suspend`, so the read is a single `first()`;
+     * the same as `simklRewatchMode`. The projection is `suspend`, so the read is a single `first()`;
      * when the setting cannot be read, the threshold is not passed in and a playback row keeps the source
      * default of 80 percent. The threshold decides on the write side (the scrobbler), that is when a
      * playback is reported as finished. On the Continue Watching read it no longer decides that a playback

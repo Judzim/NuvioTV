@@ -8,7 +8,6 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklRewatchMode
-import com.nuvio.tv.data.simkl.SimklRewatchNextUpMode
 import com.nuvio.tv.data.simkl.coerceSimklWatchedThresholdPercent
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.CoroutineScope
@@ -85,7 +84,6 @@ class TraktSettingsDataStore @Inject constructor(
      * `Int` inside `coerceSimklWatchedThresholdPercent`.
      */
     private val simklRewatchModeKey = stringPreferencesKey("simkl_rewatch_mode")
-    private val simklRewatchNextUpModeKey = stringPreferencesKey("simkl_rewatch_next_up_mode")
     private val simklWatchedThresholdPercentKey = intPreferencesKey("simkl_watched_threshold_percent")
 
     val continueWatchingDaysCap: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
@@ -257,19 +255,6 @@ class TraktSettingsDataStore @Inject constructor(
     suspend fun setSimklRewatchMode(mode: SimklRewatchMode) {
         store().edit { prefs ->
             prefs[simklRewatchModeKey] = mode.name
-        }
-    }
-
-    val simklRewatchNextUpMode: Flow<SimklRewatchNextUpMode> =
-        profileManager.activeProfileId.flatMapLatest { pid ->
-            factory.get(pid, FEATURE).data.map { prefs ->
-                SimklRewatchNextUpMode.fromStorage(prefs[simklRewatchNextUpModeKey])
-            }
-        }
-
-    suspend fun setSimklRewatchNextUpMode(mode: SimklRewatchNextUpMode) {
-        store().edit { prefs ->
-            prefs[simklRewatchNextUpModeKey] = mode.name
         }
     }
 

@@ -1,6 +1,5 @@
 package com.nuvio.tv.data.simkl
 
-import com.nuvio.tv.core.tracking.TrackingEpisode
 import com.nuvio.tv.core.tracking.TrackingExternalIds
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
@@ -9,113 +8,64 @@ import io.mockk.mockk
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * What the writer answers for a rewatch the user confirmed.
+ * What the writer sends when a run is dropped, and what it says about it.
  *
- * The verdict is the write, not a read of the account, and the account is only looked at when the
- * write itself came back as an error. Simkl answers a repeat viewing with a conflict whose meaning is
- * that the session was opened, so that conflict cannot be read as a refusal, and an episode the
- * history already holds is answered that way every time.
+ * Closing is a change of the session state, not a viewing: the write names the session and moves it
+ * to `closed`, and it must not carry an episode, or Simkl would read it as a watch of that episode
+ * and the 2-day rule would decide what to do with it. The state is read back from the account, which
+ * is also what Continue Watching reads.
  */
 class SimklRewatchWriterTest {
 
     private val syncRepository = mockk<SimklSyncRepository>(relaxed = true)
 
     @Test
-    fun `a write the account took is the answer`() = runBlocking {
-        accountWithSessions()
-        val engine = RecordingEngine(response(201, ADDED_STATUS))
+    fun `closing a run names its session and moves it to closed`() = runBlocking {
+        val engine = RecordingEngine(response(200))
         val remote = FakeRemote(emptyList())
         val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
 
-        assertTrue(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
+        assertTrue(writer.closeRewatchSession(show(), REWATCH_ID))
 
         assertEquals(listOf("/sync/history"), engine.paths)
-        // The write that is allowed to open a session, carrying the episode the user watched.
         assertTrue("allow_rewatch=yes" in engine.urls.single())
+        assertTrue("\"rewatch_id\":$REWATCH_ID" in engine.bodies.single())
+        assertTrue("\"rewatch_status\":\"closed\"" in engine.bodies.single())
         assertTrue("\"is_rewatch\":true" in engine.bodies.single())
-        assertTrue("\"number\":7" in engine.bodies.single())
-        // The answer does not wait for the account. The refresh reads on its own, seconds later.
+        // No watch: no episode coordinates, no date and no status mark.
+        assertFalse("\"seasons\"" in engine.bodies.single())
+        assertFalse("\"episodes\"" in engine.bodies.single())
+        assertFalse("watched_at" in engine.bodies.single())
+        assertFalse("\"status\"" in engine.bodies.single())
+        // The state is read back in the background, seconds later, and not waited for.
         assertEquals(0, remote.reads.get())
     }
 
     @Test
-    fun `an episode the history already holds is a session, not a refusal`() = runBlocking {
-        accountWithSessions()
-        val engine = RecordingEngine(response(409, NOT_FOUND_CONFLICT))
+    fun `a write the account refused is reported as not closed`() = runBlocking {
+        val engine = RecordingEngine(response(403))
+        val writer = SimklRewatchWriter(SimklMutationService(client(engine)), FakeRemote(emptyList()), syncRepository)
+
+        assertFalse(writer.closeRewatchSession(show(), REWATCH_ID))
+    }
+
+    @Test
+    fun `the sessions are read back after the write`() = runBlocking {
+        val engine = RecordingEngine(response(200))
         val remote = FakeRemote(emptyList())
         val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
 
-        assertTrue(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
+        writer.closeRewatchSession(show(), REWATCH_ID)
 
-        assertTrue("allow_rewatch=yes" in engine.urls.single())
-        assertEquals(0, remote.reads.get())
-    }
-
-    @Test
-    fun `a write that came back as an error is answered by the account`() = runBlocking {
-        accountWithSessions()
-        val engine = RecordingEngine(response(403))
-        val remote = FakeRemote(listOf(sessionRow()))
-        val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
-
-        assertTrue(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
-
-        assertTrue(remote.reads.get() >= 1)
-    }
-
-    @Test
-    fun `a rewatch the account does not carry is reported as not recorded`() = runBlocking {
-        accountWithSessions()
-        val engine = RecordingEngine(response(403))
-        val remote = FakeRemote(emptyList())
-        val writer = SimklRewatchWriter(SimklMutationService(client(engine)), remote, syncRepository)
-
-        assertFalse(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
-
-        assertTrue(remote.reads.get() >= 1)
-    }
-
-    @Test
-    fun `a confirmed rewatch of a run that is already open names its session`() = runBlocking {
-        accountWithSessions(sessionRow().copy(rewatchId = 7482L, rewatchStatus = "active"))
-        val engine = RecordingEngine(response(201, ADDED_STATUS))
-        val writer = SimklRewatchWriter(SimklMutationService(client(engine)), FakeRemote(emptyList()), syncRepository)
-
-        assertTrue(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
-
-        // The run the user is in, named on the write instead of being left to the account to pick.
-        assertTrue("\"rewatch_id\":7482" in engine.bodies.single())
-        assertTrue("\"is_rewatch\":true" in engine.bodies.single())
-    }
-
-    @Test
-    fun `a run that is not running is not named`() = runBlocking {
-        // The session the user closed is not what a new viewing joins, so nothing is pinned and the
-        // account opens the run the write belongs to.
-        accountWithSessions(sessionRow().copy(rewatchId = 7482L, rewatchStatus = "closed"))
-        val engine = RecordingEngine(response(201, ADDED_STATUS))
-        val writer = SimklRewatchWriter(SimklMutationService(client(engine)), FakeRemote(emptyList()), syncRepository)
-
-        assertTrue(writer.recordConfirmedRewatch(episode(), WATCHED_AT))
-
-        assertFalse("rewatch_id" in engine.bodies.single())
-    }
-
-    /**
-     * The account the writer reads its sessions from. They are the ones the last read left, which is
-     * what decides the run a confirmed viewing continues.
-     */
-    private fun accountWithSessions(vararg sessions: SimklLibraryEntry) {
-        every { syncRepository.state } returns MutableStateFlow(
-            SimklSyncState(snapshot = SimklSyncSnapshot(rewatchSessions = sessions.toList()))
-        )
+        // The read runs on the writer's own scope with the delays Simkl needs, so it has not happened
+        // by the time the answer is given. What matters here is that nothing else was written.
+        assertEquals(1, engine.paths.size)
     }
 
     private fun client(engine: RecordingEngine): SimklApiClient = SimklApiClient(
@@ -128,26 +78,11 @@ class SimklRewatchWriterTest {
         retryJitterMs = { 0L }
     )
 
-    private fun episode() = TrackingMediaReference(
+    private fun show() = TrackingMediaReference(
         kind = TrackingMediaKind.SHOW,
         title = "Dark",
         year = 2017,
-        ids = TrackingExternalIds(imdb = "tt5753856"),
-        episode = TrackingEpisode(season = 2, number = 7)
-    )
-
-    /** The sidecar row Simkl publishes for a rewatch, holding the episode the user confirmed. */
-    private fun sessionRow() = SimklLibraryEntry(
-        mediaType = SimklMediaType.SHOWS,
-        isRewatch = true,
-        show = SimklMedia(
-            title = "Dark",
-            year = 2017,
-            ids = mapOf("imdb" to JsonPrimitive("tt5753856"))
-        ),
-        seasons = listOf(
-            SimklSeason(number = 2, episodes = listOf(SimklEpisode(number = 7, watchedAt = WATCHED_AT_ISO)))
-        )
+        ids = TrackingExternalIds(imdb = "tt5753856")
     )
 
     private class RecordingEngine(vararg responses: SimklRawHttpResponse) : SimklHttpEngine {
@@ -170,10 +105,7 @@ class SimklRewatchWriterTest {
         }
     }
 
-    /**
-     * The account as the writer reads it. A read is counted, so a test can tell whether the answer
-     * waited for one.
-     */
+    /** The account as the writer reads it. A read is counted, so a test can tell whether one waited. */
     private class FakeRemote(private val sessions: List<SimklLibraryEntry>) : SimklSyncRemote {
         val reads = AtomicInteger()
 
@@ -191,17 +123,7 @@ class SimklRewatchWriterTest {
     }
 
     private companion object {
-        const val WATCHED_AT = 1_700_000_000_000L
-        const val WATCHED_AT_ISO = "2023-11-14T22:13:20Z"
-
-        const val ADDED_STATUS =
-            """{"added":{"statuses":[{"request":{"title":"Dark","ids":{"imdb":"tt5753856"}},""" +
-                """"response":{"status":"watching","simkl_type":"tv"}}]},""" +
-                """"not_found":{"movies":[],"shows":[],"episodes":[]}}"""
-
-        /** What Simkl answers an episode the history already holds. */
-        const val NOT_FOUND_CONFLICT =
-            """{"not_found":{"movies":[],"shows":[{"title":"Dark","ids":{"imdb":"tt5753856"}}],"episodes":[]}}"""
+        const val REWATCH_ID = 7482L
 
         val configuration = SimklApiConfiguration("client-id", "nuvio", "1.0")
         fun response(status: Int, body: String = "{}") = SimklRawHttpResponse(status, body)

@@ -87,6 +87,31 @@ class SimklMutationService internal constructor(
         return receipt.result
     }
 
+    /**
+     * Moves a running rewatch session to `closed`, which is how a run is dropped.
+     *
+     * The transition is documented on Simkl's rewatches guide: the session keeps its watched
+     * episodes and can be resumed by another write, so dropping a run never loses history. Nothing
+     * is committed locally from the answer: what the account keeps is read back from the sessions by
+     * the caller, which is also what Continue Watching reads.
+     */
+    suspend fun closeRewatchSession(
+        media: TrackingMediaReference,
+        rewatchId: Long
+    ): Boolean {
+        require(media.hasResolvableIdentity) { "Simkl mutation requires a media ID or title for the item" }
+        val response = client.execute(
+            SimklApiRequest(
+                method = SimklHttpMethod.POST,
+                path = "/sync/history",
+                query = SIMKL_ALLOW_REWATCH_QUERY,
+                body = buildSimklRewatchCloseBody(media, rewatchId, json),
+                retryPolicy = SimklRetryPolicy.SYNC_WRITE
+            )
+        )
+        return response.status in 200..299 || response.isSoftSuccess
+    }
+
     suspend fun removeFromHistory(items: Collection<TrackingMediaReference>): TrackingMutationResult {
         val candidates = items.validated()
         if (candidates.isEmpty()) return TrackingMutationResult(attemptedCount = 0)

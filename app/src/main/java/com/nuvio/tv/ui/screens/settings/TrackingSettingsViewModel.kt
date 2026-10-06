@@ -16,7 +16,6 @@ import com.nuvio.tv.data.mdblist.MdbListAuthStore
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklAuthRepository
 import com.nuvio.tv.data.simkl.SimklRewatchMode
-import com.nuvio.tv.data.simkl.SimklRewatchNextUpMode
 import com.nuvio.tv.data.simkl.SimklSyncRepository
 import com.nuvio.tv.data.simkl.coerceSimklWatchedThresholdPercent
 import com.nuvio.tv.data.simkl.isSimklRewatchModeSelectable
@@ -41,7 +40,6 @@ data class TrackingSettingsUiState(
      * the account holds without being asked.
      */
     val simklRewatchMode: SimklRewatchMode = SimklRewatchMode.Default,
-    val simklRewatchNextUpMode: SimklRewatchNextUpMode = SimklRewatchNextUpMode.Default,
     val simklWatchedThresholdPercent: Int =
         TraktSettingsDataStore.DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT,
     val isReady: Boolean = false
@@ -57,13 +55,12 @@ data class TrackingSettingsUiState(
  * The Simkl preferences the tracking screen shows, read as one value.
  *
  * Held together because `combine` is overloaded only up to five flows: five screen state flows plus
- * three rewatch flows and the threshold is eight, so the Simkl preferences are combined in an inner
- * `combine` and enter the outer one as a single value.
+ * the rewatch preferences are too many for one call, so the Simkl preferences are combined in an
+ * inner `combine` and enter the outer one as a single value.
  */
 internal data class SimklTrackingPreferences(
     val animeIdPreference: SimklAnimeIdPreference = SimklAnimeIdPreference.DEFAULT,
     val rewatchMode: SimklRewatchMode = SimklRewatchMode.Default,
-    val rewatchNextUpMode: SimklRewatchNextUpMode = SimklRewatchNextUpMode.Default,
     val watchedThresholdPercent: Int = TraktSettingsDataStore.DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT
 )
 
@@ -93,7 +90,6 @@ internal fun trackingSettingsUiState(
         connectedProviderIds = connectedProviderIds,
         simklAnimeIdPreference = simklPreferences.animeIdPreference,
         simklRewatchMode = simklPreferences.rewatchMode,
-        simklRewatchNextUpMode = simklPreferences.rewatchNextUpMode,
         simklWatchedThresholdPercent = simklPreferences.watchedThresholdPercent,
         isReady = true
     )
@@ -133,13 +129,11 @@ class TrackingSettingsViewModel @Inject constructor(
             val simklPreferences = combine(
                 settingsDataStore.simklAnimeIdPreference,
                 settingsDataStore.simklRewatchMode,
-                settingsDataStore.simklRewatchNextUpMode,
                 settingsDataStore.simklWatchedThresholdPercent
-            ) { animeIdPreference, rewatchMode, rewatchNextUpMode, watchedThresholdPercent ->
+            ) { animeIdPreference, rewatchMode, watchedThresholdPercent ->
                 SimklTrackingPreferences(
                     animeIdPreference = animeIdPreference,
                     rewatchMode = rewatchMode,
-                    rewatchNextUpMode = rewatchNextUpMode,
                     watchedThresholdPercent = watchedThresholdPercent
                 )
             }
@@ -196,32 +190,23 @@ class TrackingSettingsViewModel @Inject constructor(
      */
     fun setSimklRewatchMode(mode: SimklRewatchMode) {
         viewModelScope.launch {
-            if (mode == SimklRewatchMode.OFF) {
-                settingsDataStore.setSimklRewatchMode(mode)
-                return@launch
+            if (mode != SimklRewatchMode.OFF) {
+                val plan = simklAuthRepository.ensurePlanLoaded()
+                if (!isSimklRewatchModeSelectable(mode, plan)) {
+                    _rewatchUpgradeRequested.value = true
+                    return@launch
+                }
             }
-            val plan = simklAuthRepository.ensurePlanLoaded()
-            if (isSimklRewatchModeSelectable(mode, plan)) {
-                settingsDataStore.setSimklRewatchMode(mode)
-            } else {
-                _rewatchUpgradeRequested.value = true
-            }
+            settingsDataStore.setSimklRewatchMode(mode)
+            // The runs on the Continue Watching row follow the mode right away instead of at the next
+            // sync: the sessions the app already read are re-derived, and turning rewatches off drops
+            // the row's runs with them.
+            simklSyncRepository.refreshRewatchRuns()
         }
     }
 
     fun dismissRewatchUpgrade() {
         _rewatchUpgradeRequested.value = false
-    }
-
-    /**
-     * How much of a rewatch run has to be on the account before it offers the next episode.
-     *
-     * The runs are re-derived from the sessions the app already read, so the row follows the choice
-     * right away; without this the setting would only show up at the next sync and look broken.
-     */
-    suspend fun setSimklRewatchNextUpMode(mode: SimklRewatchNextUpMode) {
-        settingsDataStore.setSimklRewatchNextUpMode(mode)
-        simklSyncRepository.refreshRewatchRuns()
     }
 
     fun setSimklWatchedThresholdPercent(percent: Int) {

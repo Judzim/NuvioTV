@@ -157,7 +157,7 @@ import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.ThemeDataStore
 import com.nuvio.tv.data.repository.MemberAccessRepository
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
-import com.nuvio.tv.data.simkl.SimklRewatchPromptRepository
+import com.nuvio.tv.data.simkl.SimklRewatchConsentRepository
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.CustomThemeColors
@@ -324,11 +324,11 @@ open class MainActivity : ComponentActivity() {
 
     /*
      * Held in the activity, not in the player screen: the rewatch question has to survive navigation,
-     * the way mobile holds it in `MainAppContent.kt`. `SimklRewatchPromptRepository` is a `@Singleton`
+     * the way mobile holds it in `MainAppContent.kt`. `SimklRewatchConsentRepository` is a `@Singleton`
      * and not a `@HiltViewModel`, so it is injected into the activity, not taken from `hiltViewModel`.
      */
     @Inject
-    lateinit var rewatchPromptRepository: SimklRewatchPromptRepository
+    lateinit var rewatchConsentRepository: SimklRewatchConsentRepository
 
     private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
     private val pendingLaunchIntent = MutableStateFlow<Intent?>(null)
@@ -1216,7 +1216,7 @@ open class MainActivity : ComponentActivity() {
                              * though the answer is still being written. Mobile has it in
                              * `MainAppContent.kt` at the same level.
                              */
-                            RewatchPromptOverlay(repository = rewatchPromptRepository)
+                            RewatchPromptOverlay(repository = rewatchConsentRepository)
                         }
                     }
                 } 

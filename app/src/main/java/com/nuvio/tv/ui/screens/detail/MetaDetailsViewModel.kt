@@ -27,6 +27,7 @@ import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
+import com.nuvio.tv.data.simkl.rewatchedEpisodesOf
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaTrailer
@@ -198,6 +199,23 @@ class MetaDetailsViewModel @Inject constructor(
                 .map { state -> state.snapshot.rewatchRuns }
                 .distinctUntilChanged()
                 .collectLatest { calculateNextToWatch() }
+        }
+    }
+
+    /**
+     * The episodes the running rewatch of the item has covered, for the marker the episode list draws.
+     *
+     * Only a run's own episodes are collected; without a run the set is empty and the list draws its
+     * marker exactly as it did before rewatches existed.
+     */
+    private fun refreshRewatchEpisodes() {
+        val snapshot = simklSyncRepository.state.value.snapshot
+        val run = rewatchRunFor(_uiState.value.meta?.id) ?: rewatchRunFor(_effectiveContentId.value)
+        val episodes = run
+            ?.let { active -> snapshot.rewatchSessions.rewatchedEpisodesOf(active.contentId) }
+            .orEmpty()
+        _uiState.update { state ->
+            if (state.rewatchEpisodes == episodes) state else state.copy(rewatchEpisodes = episodes)
         }
     }
 
@@ -1872,6 +1890,7 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun calculateNextToWatch() {
+        refreshRewatchEpisodes()
         val meta = _uiState.value.meta ?: return
         val progressMap = _uiState.value.episodeProgressMap
         val watchedEpisodes = _uiState.value.watchedEpisodes

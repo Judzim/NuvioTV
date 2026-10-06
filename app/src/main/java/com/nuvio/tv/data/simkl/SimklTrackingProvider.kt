@@ -6,6 +6,7 @@ import com.nuvio.tv.core.tracking.TrackingCapability
 import com.nuvio.tv.core.tracking.TrackingProvider
 import com.nuvio.tv.core.tracking.TrackingProviderDescriptor
 import com.nuvio.tv.core.tracking.TrackingProviderId
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import com.nuvio.tv.core.tracking.TrackingScrobbler
@@ -26,7 +27,7 @@ class SimklTrackingScrobbler @Inject constructor(
     private val authRepository: SimklAuthRepository,
     private val syncRepository: SimklSyncRepository,
     private val mutationService: SimklMutationService,
-    private val rewatchPromptRepository: SimklRewatchPromptRepository,
+    private val rewatchConsentRepository: SimklRewatchConsentRepository,
     private val settingsDataStore: TraktSettingsDataStore
 ) : TrackingScrobbler {
     override val providerId = TrackingProviderId.SIMKL
@@ -76,12 +77,22 @@ class SimklTrackingScrobbler @Inject constructor(
             progressPercent = enrichedEvent.progressPercent,
             completionThresholdPercent = completionThresholdPercent
         )
+        // The run of the item, when the account already has one, and the answer the user gave to
+        // the question before the playback: together they decide whether the scrobble asks Simkl for
+        // a rewatch. A session the account runs releases the answer, which was for the run it opened.
+        val knownSnapshot = syncRepository.state.value.snapshot
+        val runningSessionId = knownSnapshot.rewatchSessions.activeRewatchSessionId(enrichedEvent.media)
+        if (runningSessionId != null) {
+            rewatchConsentRepository.releaseGrant(enrichedEvent.media)
+        }
         val recordRewatch = shouldRecordSimklRewatchOnStop(
             mode = mode,
             accountType = accountType,
             action = reportingAction,
             progressPercent = enrichedEvent.progressPercent,
-            completionThresholdPercent = completionThresholdPercent
+            completionThresholdPercent = completionThresholdPercent,
+            hasRunningSession = runningSessionId != null,
+            consented = rewatchConsentRepository.grantedFor(enrichedEvent.media)
         )
         val result = mutationService.scrobble(
             action = reportingAction,
@@ -90,8 +101,12 @@ class SimklTrackingScrobbler @Inject constructor(
             completionThresholdPercent = completionThresholdPercent
         )
         // The prior watch has to be read before the commit, or the playback looks like a repeat
-        // viewing of itself. Only a stop can raise the prompt.
-        val priorWatch = if (reportingAction == TrackingScrobbleAction.STOP) {
+        // viewing of itself. A stop asks whether the viewing that ended is a rewatch, a start
+        // whether the viewing that is beginning opens a run.
+        val priorWatch = if (
+            reportingAction == TrackingScrobbleAction.STOP ||
+            reportingAction == TrackingScrobbleAction.START
+        ) {
             syncRepository.state.value.snapshot.priorWatchForScrobble(result)
         } else {
             SimklPriorWatch.None
@@ -121,25 +136,24 @@ class SimklTrackingScrobbler @Inject constructor(
         } else {
             isSimklRewatchPlanEligible(accountType)
         }
-        val nowEpochMs = System.currentTimeMillis()
-        val watchedAtEpochMs = result.watchedAt?.let(::parseSimklUtcEpochMs) ?: nowEpochMs
-        val askToRecord = shouldPromptSimklRewatch(
-            mode = mode,
-            accountType = accountType,
-            action = reportingAction,
-            outcome = result.outcome,
-            progressPercent = result.progress,
-            priorWatch = priorWatch,
-            nowEpochMs = nowEpochMs,
-            completionThresholdPercent = completionThresholdPercent
-        )
-        if (askToRecord && planAllowsRewatches) {
-            rewatchPromptRepository.request(
-                RewatchPrompt(
-                    media = enrichedEvent.media,
-                    watchedAtEpochMs = watchedAtEpochMs
-                )
+        if (reportingAction == TrackingScrobbleAction.START) {
+            val askToStartRun = shouldAskToStartSimklRewatch(
+                mode = mode,
+                accountType = accountType,
+                action = reportingAction,
+                priorWatch = priorWatch,
+                nowEpochMs = System.currentTimeMillis(),
+                hasRunningSession = runningSessionId != null
             )
+            if (askToStartRun && planAllowsRewatches) {
+                rewatchConsentRepository.ask(enrichedEvent.media)
+            }
+        }
+        // A session the account just took is not on the snapshot until the sessions are read again,
+        // and Continue Watching follows that read: asking for a refresh keeps the row current
+        // instead of waiting for the next sync.
+        if (reportingAction == TrackingScrobbleAction.STOP && result.rewatchId != null) {
+            syncRepository.refreshAsync(TrackingRefreshIntent.INVALIDATED)
         }
         Log.d(
             TRACKING_SCROBBLE_DIAGNOSTIC_TAG,

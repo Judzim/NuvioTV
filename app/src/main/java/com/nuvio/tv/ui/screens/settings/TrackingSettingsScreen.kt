@@ -17,7 +17,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -39,7 +38,6 @@ import com.nuvio.tv.data.simkl.SIMKL_WATCHED_THRESHOLD_MIN_PERCENT
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklConnectionMode
 import com.nuvio.tv.data.simkl.SimklRewatchMode
-import com.nuvio.tv.data.simkl.SimklRewatchNextUpMode
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -78,8 +76,6 @@ fun TrackingSettingsScreen(
     var showMoreLikeThisSourceDialog by remember { mutableStateOf(false) }
     var showAnimeIdDialog by remember { mutableStateOf(false) }
     var showRewatchModeDialog by remember { mutableStateOf(false) }
-    var showRewatchNextUpDialog by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     var showMdbListLibraryListsDialog by remember { mutableStateOf(false) }
 
     val hasOverlay = activeProvider != null ||
@@ -90,7 +86,6 @@ fun TrackingSettingsScreen(
         showMoreLikeThisSourceDialog ||
         showAnimeIdDialog ||
         showRewatchModeDialog ||
-        showRewatchNextUpDialog ||
         rewatchUpgradeRequested ||
         showMdbListLibraryListsDialog
 
@@ -219,9 +214,6 @@ fun TrackingSettingsScreen(
         onWatchedThresholdChange = trackingViewModel::setSimklWatchedThresholdPercent,
         onRewatchModeClick = {
             showRewatchModeDialog = true
-        },
-        onRewatchNextUpClick = {
-            showRewatchNextUpDialog = true
         },
         mdbListLibraryLists = mdbListLibraryLists,
         onMdbListLibraryListsClick = {
@@ -489,24 +481,6 @@ fun TrackingSettingsScreen(
         )
     }
 
-    if (showRewatchNextUpDialog) {
-        SettingsSingleChoiceDialog(
-            title = stringResource(R.string.settings_tracking_rewatch_nextup_title),
-            subtitle = stringResource(R.string.settings_tracking_rewatch_nextup_subtitle),
-            options = simklRewatchNextUpModeOptions(),
-            selectedValue = trackingState.simklRewatchNextUpMode,
-            onOptionSelected = { mode ->
-                // The runs are re-derived from the sessions already on the device, so the row follows
-                // the choice right away instead of at the next sync.
-                scope.launch { trackingViewModel.setSimklRewatchNextUpMode(mode) }
-                showRewatchNextUpDialog = false
-            },
-            onDismiss = { showRewatchNextUpDialog = false },
-            width = 660.dp,
-            maxHeight = 460.dp
-        )
-    }
-
     if (rewatchUpgradeRequested) {
         SimklRewatchUpgradeDialog(onDismiss = trackingViewModel::dismissRewatchUpgrade)
     }
@@ -536,7 +510,6 @@ internal fun TrackingSettingsOverview(
     onAnimeIdClick: () -> Unit,
     onWatchedThresholdChange: (Int) -> Unit = {},
     onRewatchModeClick: () -> Unit = {},
-    onRewatchNextUpClick: () -> Unit = {},
     mdbListLibraryLists: MdbListLibraryListsUiState = MdbListLibraryListsUiState(),
     onMdbListLibraryListsClick: () -> Unit = {}
 ) {
@@ -726,13 +699,6 @@ internal fun TrackingSettingsOverview(
                                     onClick = onRewatchModeClick,
                                     modifier = Modifier.testTag(TrackingSettingsTestTags.REWATCH_MODE)
                                 )
-                                SettingsActionRow(
-                                    title = stringResource(R.string.settings_tracking_rewatch_nextup_title),
-                                    subtitle = stringResource(R.string.settings_tracking_rewatch_nextup_subtitle),
-                                    value = simklRewatchNextUpModeLabel(trackingState.simklRewatchNextUpMode),
-                                    onClick = onRewatchNextUpClick,
-                                    modifier = Modifier.testTag(TrackingSettingsTestTags.REWATCH_NEXT_UP)
-                                )
                             }
                         }
                     }
@@ -888,15 +854,8 @@ private fun animeIdPreferenceLabel(preference: SimklAnimeIdPreference): String =
 @Composable
 private fun simklRewatchModeLabel(mode: SimklRewatchMode): String = when (mode) {
     SimklRewatchMode.OFF -> stringResource(R.string.settings_tracking_rewatch_off)
-    SimklRewatchMode.MANUAL -> stringResource(R.string.settings_tracking_rewatch_manual)
+    SimklRewatchMode.SEMI_AUTOMATIC -> stringResource(R.string.settings_tracking_rewatch_semi)
     SimklRewatchMode.AUTOMATIC -> stringResource(R.string.settings_tracking_rewatch_automatic)
-}
-
-@Composable
-private fun simklRewatchNextUpModeLabel(mode: SimklRewatchNextUpMode): String = when (mode) {
-    SimklRewatchNextUpMode.ALWAYS -> stringResource(R.string.settings_tracking_rewatch_nextup_always)
-    SimklRewatchNextUpMode.AFTER_TWO -> stringResource(R.string.settings_tracking_rewatch_nextup_after_two)
-    SimklRewatchNextUpMode.NEVER -> stringResource(R.string.settings_tracking_rewatch_nextup_never)
 }
 
 @Composable
@@ -907,33 +866,14 @@ private fun simklRewatchModeOptions(): List<SettingsPickerOption<SimklRewatchMod
         description = stringResource(R.string.settings_tracking_rewatch_off_subtitle)
     ),
     SettingsPickerOption(
-        value = SimklRewatchMode.MANUAL,
-        title = stringResource(R.string.settings_tracking_rewatch_manual),
-        description = stringResource(R.string.settings_tracking_rewatch_manual_subtitle)
+        value = SimklRewatchMode.SEMI_AUTOMATIC,
+        title = stringResource(R.string.settings_tracking_rewatch_semi),
+        description = stringResource(R.string.settings_tracking_rewatch_semi_subtitle)
     ),
     SettingsPickerOption(
         value = SimklRewatchMode.AUTOMATIC,
         title = stringResource(R.string.settings_tracking_rewatch_automatic),
         description = stringResource(R.string.settings_tracking_rewatch_automatic_subtitle)
-    )
-)
-
-@Composable
-private fun simklRewatchNextUpModeOptions(): List<SettingsPickerOption<SimklRewatchNextUpMode>> = listOf(
-    SettingsPickerOption(
-        value = SimklRewatchNextUpMode.ALWAYS,
-        title = stringResource(R.string.settings_tracking_rewatch_nextup_always),
-        description = stringResource(R.string.settings_tracking_rewatch_nextup_always_subtitle)
-    ),
-    SettingsPickerOption(
-        value = SimklRewatchNextUpMode.AFTER_TWO,
-        title = stringResource(R.string.settings_tracking_rewatch_nextup_after_two),
-        description = stringResource(R.string.settings_tracking_rewatch_nextup_after_two_subtitle)
-    ),
-    SettingsPickerOption(
-        value = SimklRewatchNextUpMode.NEVER,
-        title = stringResource(R.string.settings_tracking_rewatch_nextup_never),
-        description = stringResource(R.string.settings_tracking_rewatch_nextup_never_subtitle)
     )
 )
 
@@ -960,5 +900,4 @@ internal object TrackingSettingsTestTags {
     const val MORE_LIKE_THIS = "tracking_trakt_more_like_this"
     const val WATCHED_THRESHOLD = "tracking_simkl_watched_threshold"
     const val REWATCH_MODE = "tracking_simkl_rewatch_mode"
-    const val REWATCH_NEXT_UP = "tracking_simkl_rewatch_next_up"
 }

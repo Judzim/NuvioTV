@@ -15,8 +15,8 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
  * fresh one once the same episode is rewatched days later, and a closed or finished one is a run the
  * user left, so reading the sessions together would put the row back on a position the user is not in.
  * Episodes then have to form a chain of consecutive numbers inside one season, and the chain holding
- * the most recently rewatched episode is the run. How long that chain has to be is the user's
- * choice; see [SimklRewatchNextUpMode].
+ * the most recently rewatched episode is the run. A run the user is in is always offered; the mode
+ * decides whether the account is asked about rewatches at all (see [SimklRewatchMode]).
  *
  * Difference from mobile: mobile takes `animeIdPreference` and groups through
  * `canonicalContentId(preference)`. The TV `SimklMedia.canonicalContentId()` takes no parameter and
@@ -25,9 +25,9 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
  */
 internal fun deriveSimklRewatchRuns(
     entries: List<SimklLibraryEntry>,
-    minimumRunEpisodes: Int?,
+    offerRuns: Boolean,
 ): List<RewatchRunPosition> {
-    val requiredEpisodes = minimumRunEpisodes ?: return emptyList()
+    if (!offerRuns) return emptyList()
     val sessions = entries.filter { entry ->
         entry.isRewatch && entry.media != null && entry.isRunningRewatchSession()
     }
@@ -36,7 +36,7 @@ internal fun deriveSimklRewatchRuns(
         .groupBy { entry -> entry.media?.canonicalContentId().orEmpty() }
         .filterKeys { contentId -> contentId.isNotEmpty() }
         .mapNotNull { (contentId, rows) ->
-            buildRewatchRun(contentId, rows, requiredEpisodes)
+            buildRewatchRun(contentId, rows)
         }
         .sortedByDescending(RewatchRunPosition::markedAtEpochMs)
 }
@@ -45,7 +45,7 @@ internal fun deriveSimklRewatchRuns(
  * What one read of the rewatch sessions produced: the runs the app offers and the sessions they were
  * derived from.
  *
- * The sessions are kept on the snapshot next to the runs, so a change of [SimklRewatchNextUpMode] can
+ * The sessions are kept on the snapshot next to the runs, so a change of [SimklRewatchMode] can
  * re-derive the runs straight away instead of waiting for the next read of the account.
  */
 internal data class SimklRewatchRead(
@@ -56,7 +56,6 @@ internal data class SimklRewatchRead(
 private fun buildRewatchRun(
     contentId: String,
     rows: List<SimklLibraryEntry>,
-    minimumRunEpisodes: Int,
 ): RewatchRunPosition? {
     val episodes = rows
         .flatMap { row -> row.rewatchedEpisodes() }
@@ -72,7 +71,6 @@ private fun buildRewatchRun(
     val chain = consecutiveChains(episodes)
         .firstOrNull { candidate -> candidate.any { it.isSameEpisodeAs(newest) } }
         ?: return null
-    if (chain.size < minimumRunEpisodes) return null
     val position = chain.maxBy { episode -> episode.episodeNumber }
     return RewatchRunPosition(
         contentId = contentId,
@@ -134,41 +132,22 @@ private fun consecutiveChains(episodes: List<RewatchedEpisode>): List<List<Rewat
         }
 
 /**
- * True when the account's rewatch sessions hold this exact episode.
+ * The episodes the running session of the item holds: what a rewatch in progress has covered so far.
  *
- * A write to `/sync/history` answers `not_found` for an episode that is already in the history, even
- * when Simkl opened a rewatch session for it, so the write receipt says "nothing was added" for a
- * rewatch that landed. The sessions are the only honest answer, and they are what Continue Watching
- * reads as well.
+ * The detail screen draws the same marker on every episode the account watched, so a run needs its
+ * own set to tell an episode it has already rewatched from one it has not reached yet. Only the
+ * session the account still reports as running is read, the same rule the run itself is read with,
+ * and the item is the one the run was read for: the content id a [RewatchRunPosition] carries.
  */
-internal fun List<SimklLibraryEntry>.holdsRewatchEpisode(media: TrackingMediaReference): Boolean {
-    val episode = media.episode ?: return false
-    val target = media.toSimklMedia()
-    return any { entry ->
+internal fun List<SimklLibraryEntry>.rewatchedEpisodesOf(contentId: String): Set<Pair<Int, Int>> =
+    filter { entry ->
         entry.isRewatch &&
-            entry.media?.matchesTarget(target) == true &&
-            entry.rewatchedEpisodes().any { rewatched ->
-                rewatched.seasonNumber == episode.season && rewatched.episodeNumber == episode.number
-            }
+            entry.isRunningRewatchSession() &&
+            entry.media?.canonicalContentId() == contentId
     }
-}
-
-/**
- * True when any session holds a rewatch at this season and episode, whoever the show belongs to.
- *
- * Used only to tell a write that errored but landed from one that did not. Identifying the show is
- * besides the point there: the coordinates come from the episode just written, and the account only
- * holds what the user put there.
- */
-internal fun List<SimklLibraryEntry>.holdsRewatchAt(
-    seasonNumber: Int,
-    episodeNumber: Int,
-): Boolean = any { entry ->
-    entry.isRewatch &&
-        entry.rewatchedEpisodes().any { rewatched ->
-            rewatched.seasonNumber == seasonNumber && rewatched.episodeNumber == episodeNumber
-        }
-}
+        .flatMap(SimklLibraryEntry::rewatchedEpisodes)
+        .map { episode -> episode.seasonNumber to episode.episodeNumber }
+        .toSet()
 
 /**
  * The session a repeat viewing of this item joins, when the account already has one running.

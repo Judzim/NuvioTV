@@ -85,7 +85,8 @@ class HomeViewModel @Inject constructor(
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     internal val profileManager: com.nuvio.tv.core.profile.ProfileManager,
     internal val tvRecommendationManager: TvRecommendationManager,
-    internal val simklSyncRepository: com.nuvio.tv.data.simkl.SimklSyncRepository
+    internal val simklSyncRepository: com.nuvio.tv.data.simkl.SimklSyncRepository,
+    internal val simklRewatchWriter: com.nuvio.tv.data.simkl.SimklRewatchWriter
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -508,7 +509,14 @@ class HomeViewModel @Inject constructor(
             simklSyncRepository.state
                 .map { state -> state.snapshot.rewatchRuns }
                 .distinctUntilChanged()
-                .collect {
+                .collect { runs ->
+                    // A run the account is in belongs in the row on every device, so a dismissal the
+                    // row saved earlier must not keep hiding it here: a build that could not close
+                    // the session stored one and the run stayed, leaving the row and the account
+                    // disagreeing about the same run. The keys are the id forms the card can carry.
+                    runs.flatMap { run -> run.matchKeys }
+                        .distinct()
+                        .forEach { key -> traktSettingsDataStore.removeDismissedNextUpKeysForContent(key) }
                     if (initial) {
                         initial = false
                         return@collect

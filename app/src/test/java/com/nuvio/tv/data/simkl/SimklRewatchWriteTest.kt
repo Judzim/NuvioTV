@@ -30,6 +30,29 @@ import org.junit.Test
 class SimklRewatchWriteTest {
 
     @Test
+    fun `the close write names the session and no watch`() {
+        val body = buildSimklRewatchCloseBody(
+            show(episode = TrackingEpisode(season = 2, number = 7)),
+            7482L
+        ).asObject()
+
+        val showItem = body.getValue("shows").jsonArray.single().jsonObject
+        assertEquals(7482, showItem.getValue("rewatch_id").jsonPrimitive.content.toInt())
+        assertEquals("closed", showItem.getValue("rewatch_status").jsonPrimitive.content)
+        // The write has to say it is a rewatch, or Simkl answers it as a plain history write and the
+        // session is never touched; the answer looks the same either way.
+        assertTrue(showItem.getValue("is_rewatch").jsonPrimitive.content.toBoolean())
+        // Closing changes what the account keeps about the session, it is not a viewing: no episode
+        // coordinates, no date and no status mark, or Simkl would read the write as a watch.
+        assertNull(showItem["seasons"])
+        assertNull(showItem["episodes"])
+        assertNull(showItem["watched_at"])
+        assertNull(showItem["status"])
+        // An empty list is left out of the body entirely: the close carries one show and nothing else.
+        assertNull(body["movies"])
+    }
+
+    @Test
     fun `a rewatch write is an episode write and only it carries the flag`() {
         val rewatch = buildSimklHistoryMutationBody(
             listOf(TrackingHistoryItem(show(episode = TrackingEpisode(season = 2, number = 7)), WATCHED_AT)),

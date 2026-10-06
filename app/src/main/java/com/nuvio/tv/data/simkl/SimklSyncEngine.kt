@@ -92,7 +92,7 @@ class SimklSyncEngine internal constructor(
             SimklRewatchRead(
                 runs = deriveSimklRewatchRuns(
                     entries = sessions,
-                    minimumRunEpisodes = minimumRewatchRunEpisodes()
+                    offerRuns = offersSimklRewatchRuns()
                 ),
                 sessions = sessions
             )
@@ -104,12 +104,14 @@ class SimklSyncEngine internal constructor(
         }
 
     /*
-     * Difference from mobile: mobile reads `simklRewatchNextUpMode` from `TrackingSettingsRepository`.
-     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where the
-     * keys live. The read is therefore `suspend`, and the caller `readRewatchRuns` is `suspend` too.
+     * Difference from mobile: mobile reads the rewatch setting from `TrackingSettingsRepository`.
+     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where
+     * the keys live. The read is therefore `suspend`, and the caller `readRewatchRuns` is `suspend`
+     * too. Only the recording mode decides here: while rewatches are off, runs of the account are
+     * not read at all, so the row never offers a session the app would not write into.
      */
-    private suspend fun minimumRewatchRunEpisodes(): Int? =
-        settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes
+    private suspend fun offersSimklRewatchRuns(): Boolean =
+        settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF
 }
 
 fun mergeSimklDelta(

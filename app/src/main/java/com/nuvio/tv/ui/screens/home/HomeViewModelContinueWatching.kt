@@ -8,6 +8,9 @@ import com.nuvio.tv.core.tracking.RewatchRunPosition
 import com.nuvio.tv.core.util.isEpisodeReleaseAired
 import com.nuvio.tv.core.util.parseEpisodeReleaseInstant
 import com.nuvio.tv.core.util.selectEpisodeReleaseValue
+import com.nuvio.tv.data.simkl.canonicalContentId
+import com.nuvio.tv.data.simkl.isRunningRewatchSession
+import com.nuvio.tv.data.simkl.mediaReference
 import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
@@ -3214,6 +3217,36 @@ internal fun nextUpDismissKey(
     return contentId.trim()
 }
 
+/**
+ * Ends the run a Continue Watching card stands for, when the card is the run.
+ *
+ * The account holds the run, so a card of a running rewatch cannot be taken out of the row locally:
+ * Continue Watching reads the sessions, and the next read, here or on any other device, would put it
+ * back. Closing the session takes the card out everywhere it is read and keeps the watch history
+ * Simkl already has. A card whose series runs no session is left alone.
+ */
+internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String) {
+    val snapshot = simklSyncRepository.state.value.snapshot
+    // The same matcher the row used to place the card, so the two cannot disagree about which run
+    // the card stands for.
+    val run = snapshot.rewatchRuns.firstOrNull { run -> run.matches(contentId) } ?: return
+    val sessionId = snapshot.rewatchSessions
+        .firstOrNull { entry ->
+            entry.isRewatch &&
+                entry.isRunningRewatchSession() &&
+                entry.media?.canonicalContentId() == run.contentId
+        }
+        ?.rewatchId
+        ?: return
+    simklRewatchWriter.closeRewatchSession(
+        media = snapshot.mediaReference(contentId = run.contentId, contentType = SERIES_CONTENT_TYPE),
+        rewatchId = sessionId
+    )
+}
+
+/** The content type the catalogue uses for series, which is what a run is read as. */
+private const val SERIES_CONTENT_TYPE = "series"
+
 internal fun HomeViewModel.removeContinueWatchingPipeline(
     contentId: String,
     season: Int? = null,
@@ -3251,6 +3284,9 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
         viewModelScope.launch {
             traktSettingsDataStore.addDismissedNextUpKey(dismissKey)
         }
+        // Removing a card of a running rewatch is dropping the run, and the run lives on the
+        // account: the session is closed, which is what takes the card out of the row everywhere.
+        viewModelScope.launch { closeRunningRewatchFor(contentId) }
         return
     }
     viewModelScope.launch {

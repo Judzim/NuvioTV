@@ -437,6 +437,8 @@ class SimklSyncEngineTest {
 
     @Test
     fun `initial sync reads the account rewatch sessions into runs`() = runBlocking {
+        // Runs are read while rewatches are recorded; the default keeps them out of the row.
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
         val remote = ScriptedRemote(
             Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
             Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
@@ -461,10 +463,9 @@ class SimklSyncEngineTest {
     }
 
     @Test
-    fun `the stored next up mode decides whether a single rewatched episode becomes a run`() = runBlocking {
-        // This used to read the default mode here, so a single rewatched episode was enough.
-        settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.AFTER_TWO)
-        val awaited = engine(
+    fun `a single rewatched episode is a run while rewatches are recorded`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        val result = engine(
             ScriptedRemote(
                 Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
                 Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
@@ -477,30 +478,15 @@ class SimklSyncEngineTest {
             )
         ) { 900L }.synchronize(SimklSyncSnapshot())
 
-        assertTrue(awaited.rewatchRuns.isEmpty())
-        // The sessions are kept either way, so switching the mode back derives runs without a network call.
-        assertEquals(1, awaited.rewatchSessions.size)
-
-        settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.ALWAYS)
-        val immediate = engine(
-            ScriptedRemote(
-                Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
-                Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
-                Step.AllItems(SimklMediaType.ANIME, SimklAllItemsResponse(anime = emptyList())),
-                Step.Playback(listOf(playback("1"))),
-                Step.Activities(activities(all = "v1")),
-                Step.RewatchSessions(
-                    listOf(rewatchEntry("1", season = 2, watched = listOf(7 to REWATCH_NEWER)))
-                )
-            )
-        ) { 900L }.synchronize(SimklSyncSnapshot())
-
-        assertEquals(7, immediate.rewatchRuns.single().episodeNumber)
+        // A rewatch the user is in is offered from its first episode: the row does not wait for two
+        // episodes in a row, and a run of one is a run.
+        assertEquals(7, result.rewatchRuns.single().episodeNumber)
+        assertEquals(1, result.rewatchSessions.size)
     }
 
     @Test
     fun `a stored off rewatch mode keeps every run out`() = runBlocking {
-        settingsDataStore.setSimklRewatchNextUpMode(SimklRewatchNextUpMode.NEVER)
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.OFF)
         val remote = ScriptedRemote(
             Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
             Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
@@ -520,6 +506,8 @@ class SimklSyncEngineTest {
 
     @Test
     fun `a changed account replaces the rewatch runs of the previous sync`() = runBlocking {
+        // Runs are read while rewatches are recorded; the default keeps them out of the row.
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
         val current = SimklSyncSnapshot(
             isInitialized = true,
             watermark = "v1",
@@ -634,7 +622,7 @@ class SimklSyncEngineTest {
         assertEquals(listOf(1, 2), session.seasons.single().episodes.mapNotNull(SimklEpisode::number))
         assertEquals(
             2,
-            deriveSimklRewatchRuns(entries = sessions, minimumRunEpisodes = 2).single().episodeNumber
+            deriveSimklRewatchRuns(entries = sessions, offerRuns = true).single().episodeNumber
         )
     }
 
