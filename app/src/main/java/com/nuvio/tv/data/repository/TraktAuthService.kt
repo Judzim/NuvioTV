@@ -18,11 +18,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okio.ByteString.Companion.toByteString
 import retrofit2.Response
 import java.io.IOException
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,15 +31,13 @@ import javax.inject.Singleton
 internal fun newTraktCodeVerifier(random: SecureRandom = SecureRandom()): String {
     val bytes = ByteArray(32)
     random.nextBytes(bytes)
-    return bytes.toByteString().encodeBase64Url()
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 }
 
 /** The S256 challenge for a verifier, the form Trakt expects on the code request. */
 internal fun traktCodeChallenge(verifier: String): String {
-    return MessageDigest.getInstance("SHA-256")
-        .digest(verifier.toByteArray(Charsets.UTF_8))
-        .toByteString()
-        .encodeBase64Url()
+    val digest = MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.UTF_8))
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
 }
 
 sealed interface TraktTokenPollResult {
