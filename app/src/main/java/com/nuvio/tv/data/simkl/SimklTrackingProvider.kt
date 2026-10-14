@@ -32,6 +32,14 @@ class SimklTrackingScrobbler @Inject constructor(
 ) : TrackingScrobbler {
     override val providerId = TrackingProviderId.SIMKL
 
+    /*
+     * Simkl keeps a "watching now" state of its own and its pause carries the completion threshold,
+     * so the account itself answers whether the playback was paused or finished. A playback that no
+     * session owns is welcome here: the pause tells Simkl where the user stopped and the start after
+     * the resume tells it the playback continued.
+     */
+    override val acceptsSessionlessScrobbles = true
+
     override suspend fun scrobble(
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent

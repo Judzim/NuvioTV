@@ -68,7 +68,18 @@ data class TrackingScrobbleEvent(
      * A playback that reached the credits is over, even when the user set the completion point higher
      * than that. Null means no marker is known for this item, and the percentage decides on its own.
      */
-    val contentEndPercent: Double? = null
+    val contentEndPercent: Double? = null,
+    /**
+     * A scrobble of a playback no session owns, for the trackers that keep a watching state of
+     * their own.
+     *
+     * A playback that sits above the completion bar never arms the pause and stop policy, so the
+     * events it produces belong to no session. Simkl wants them anyway; for Trakt a pause is a stop,
+     * and a stop above the bar records a watch, so such an event would write a viewing that never
+     * happened. The player marks them and the coordinator leaves out the scrobblers that do not
+     * accept them (see [TrackingScrobbler.acceptsSessionlessScrobbles]).
+     */
+    val sessionless: Boolean = false
 )
 
 data class TrackingMutationResult(
@@ -122,6 +133,16 @@ interface TrackingScrobbler {
     val providerId: TrackingProviderId
     val seekScrobblePolicy: TrackingSeekScrobblePolicy
         get() = TrackingSeekScrobblePolicy.NONE
+
+    /**
+     * Whether a scrobble of a playback no session owns is welcome here.
+     *
+     * Off by default. For Trakt a pause is a stop and a stop above the completion bar records a
+     * watch, so a sessionless pause or stop would write a viewing the user never finished. A tracker
+     * that keeps its own "watching now" state, such as Simkl, turns it on.
+     */
+    val acceptsSessionlessScrobbles: Boolean
+        get() = false
 
     suspend fun scrobble(action: TrackingScrobbleAction, event: TrackingScrobbleEvent)
 }
