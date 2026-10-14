@@ -8,7 +8,6 @@ import com.nuvio.tv.data.local.TraktAuthState
 import com.nuvio.tv.data.remote.api.TraktApi
 import com.nuvio.tv.data.remote.dto.trakt.TraktDeviceCodeRequestDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktDeviceCodeResponseDto
-import io.mockk.capture
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
