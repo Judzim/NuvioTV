@@ -6,6 +6,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.SeekParameters
 import com.nuvio.tv.R
 import com.nuvio.tv.core.player.LastPlaybackDiagnostics
+import com.nuvio.tv.core.tracking.TRACKING_COMPLETION_BAR_PERCENT
 import com.nuvio.tv.core.tracking.TRACKING_SCROBBLE_DIAGNOSTIC_TAG
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
@@ -800,6 +801,7 @@ internal fun PlayerRuntimeController.refreshScrobbleItem() {
     currentScrobbleItem = buildScrobbleItem()
     hasSentScrobbleStartForCurrentItem = false
     hasRequestedScrobbleStartForCurrentItem = false
+    hasSentStartAboveCompletionBarForCurrentItem = false
     scrobbleStartRequestGeneration++
     hasSentCompletionScrobbleForCurrentItem = false
     logScrobbleDiagnostic("item_refreshed")
@@ -838,15 +840,20 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
         return
     }
 
-    // Don't start a new Trakt scrobble session if playback resumes at ≥80%.
-    // This avoids creating a duplicate history entry when the user continues
-    // watching something already marked as watched. If the user seeks back
-    // below 80%, the next progress update will re-trigger scrobble start.
+    /*
+     * A playback that resumes above the completion bar gets its start too, so the trackers that show
+     * the user as watching can report it. That start opens nothing here (see
+     * `emitScrobbleStartAboveCompletionBar`), and Trakt skips it on its own side, where a start and
+     * the stop that follows would record the same viewing twice.
+     */
     val currentProgress = currentPlaybackProgressPercent()
-    if (currentProgress >= 80f) {
-        logScrobbleDiagnostic("start_skipped", "reason=completion_threshold progress=$currentProgress")
+    if (currentProgress.toDouble() >= TRACKING_COMPLETION_BAR_PERCENT) {
+        emitScrobbleStartAboveCompletionBar(currentProgress)
         return
     }
+    // Under the bar again (a fresh playback, or one seeked back): the session below owns the item,
+    // and a start already sent above the bar does not stand in its way.
+    hasSentStartAboveCompletionBarForCurrentItem = false
 
     hasRequestedScrobbleStartForCurrentItem = true
     val requestGeneration = ++scrobbleStartRequestGeneration
@@ -881,6 +888,47 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
         }
         hasSentScrobbleStartForCurrentItem = true
         logScrobbleDiagnostic("start_recorded", "requestGeneration=$requestGeneration")
+    }
+}
+
+/*
+ * The start of a playback that begins above the completion bar.
+ *
+ * The trackers that keep a "watching now" state of their own want to hear about the playback
+ * whatever position it starts from, so the start goes out here instead of being dropped. It opens
+ * nothing locally: it never arms the pause and stop policy, which is what keeps every other event
+ * exactly as it is for a playback that was already past the bar. The provider that cannot take such
+ * a start, Trakt, skips it in its own scrobbler.
+ *
+ * One start per item: a pause and the resume after it do not send another, and a seek back under the
+ * bar hands the item to the path above.
+ */
+internal fun PlayerRuntimeController.emitScrobbleStartAboveCompletionBar(progressPercent: Float) {
+    if (!shouldSendStartAboveCompletionBar(hasSentStartAboveCompletionBarForCurrentItem, progressPercent)) {
+        logScrobbleDiagnostic("start_skipped", "reason=above_completion_already_sent progress=$progressPercent")
+        return
+    }
+    hasSentStartAboveCompletionBarForCurrentItem = true
+    logScrobbleDiagnostic("start_queued", "reason=above_completion progress=$progressPercent")
+    scope.launch {
+        // The episode mapping decides the season and episode number a start is sent with, the same
+        // as on the way below the bar.
+        traktMappingJob?.join()
+        currentScrobbleItem = buildScrobbleItem()
+        val item = currentScrobbleItem
+        if (item == null) {
+            hasSentStartAboveCompletionBarForCurrentItem = false
+            logScrobbleDiagnostic("start_cancelled", "reason=above_completion_no_scrobble_item")
+            return@launch
+        }
+        val failures = trackingScrobbleCoordinator.scrobble(
+            action = TrackingScrobbleAction.START,
+            event = TrackingScrobbleEvent(item, currentPlaybackProgressPercent().toDouble())
+        )
+        logScrobbleDiagnostic(
+            "start_dispatched",
+            "reason=above_completion failures=${failures.map { failure -> failure.providerId.storageId }}"
+        )
     }
 }
 
@@ -919,6 +967,7 @@ internal fun PlayerRuntimeController.emitScrobbleStop(progressPercent: Float? = 
     scrobbleStartRequestGeneration++
     hasRequestedScrobbleStartForCurrentItem = false
     hasSentScrobbleStartForCurrentItem = false
+    hasSentStartAboveCompletionBarForCurrentItem = false
     logScrobbleDiagnostic("stop_state_reset", "progress=$percent")
 }
 

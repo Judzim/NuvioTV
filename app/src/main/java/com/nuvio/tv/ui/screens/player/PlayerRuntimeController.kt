@@ -674,6 +674,9 @@ class PlayerRuntimeController(
     internal var currentTraktEpisodeMappingKey: String? = null
     internal var hasSentScrobbleStartForCurrentItem: Boolean = false
     internal var hasRequestedScrobbleStartForCurrentItem: Boolean = false
+
+    /** A start was sent for this item while the playback was already past the completion bar. */
+    internal var hasSentStartAboveCompletionBarForCurrentItem: Boolean = false
     internal var scrobbleStartRequestGeneration: Long = 0L
     internal var playbackPreparationJob: Job? = null
     internal var traktMappingJob: Job? = null

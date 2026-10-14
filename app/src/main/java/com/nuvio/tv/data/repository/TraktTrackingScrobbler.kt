@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.repository
 
+import com.nuvio.tv.core.tracking.TRACKING_COMPLETION_BAR_PERCENT
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingProviderId
@@ -23,6 +24,17 @@ class TraktTrackingScrobbler @Inject constructor(
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent
     ) {
+        /*
+         * A playback that resumes above the completion bar is not a new viewing here. The player
+         * sends the start for the trackers that report a "watching now" state, and this one skips
+         * it: Trakt would otherwise record the same watch twice, once through the start and once
+         * through the stop that ends the playback.
+         */
+        if (action == TrackingScrobbleAction.START &&
+            event.progressPercent >= TRACKING_COMPLETION_BAR_PERCENT
+        ) {
+            return
+        }
         val item = event.media.toTraktScrobbleItem() ?: return
         when (action) {
             TrackingScrobbleAction.START -> service.scrobbleStart(item, event.progressPercent.toFloat())
