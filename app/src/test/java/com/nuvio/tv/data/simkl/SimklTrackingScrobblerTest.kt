@@ -205,7 +205,7 @@ class SimklTrackingScrobblerTest {
     @Test
     fun `a threshold stored out of range is read back inside the range`() = runBlocking {
         connect()
-        settingsDataStore.setSimklWatchedThresholdPercent(100)
+        settingsDataStore.setSimklWatchedThresholdPercent(140)
         accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 94.0))
 
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 94.0))
@@ -215,7 +215,7 @@ class SimklTrackingScrobblerTest {
                 action = TrackingScrobbleAction.STOP,
                 event = any(),
                 recordRewatch = false,
-                completionThresholdPercent = 95.0
+                completionThresholdPercent = 100.0
             )
         }
     }
