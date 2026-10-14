@@ -22,9 +22,11 @@ class SimklRewatchPolicyTest {
         assertEquals(80, coerceSimklWatchedThresholdPercent(80))
         assertEquals(85, coerceSimklWatchedThresholdPercent(85))
         assertEquals(95, coerceSimklWatchedThresholdPercent(95))
-        assertEquals(95, coerceSimklWatchedThresholdPercent(99))
+        assertEquals(99, coerceSimklWatchedThresholdPercent(99))
+        assertEquals(100, coerceSimklWatchedThresholdPercent(100))
+        assertEquals(100, coerceSimklWatchedThresholdPercent(140))
         assertEquals(80, SimklWatchedThresholdRange.first)
-        assertEquals(95, SimklWatchedThresholdRange.last)
+        assertEquals(100, SimklWatchedThresholdRange.last)
     }
 
     @Test
