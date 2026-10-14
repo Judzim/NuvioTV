@@ -1051,10 +1051,16 @@ internal fun PlayerRuntimeController.emitCompletionScrobbleStop(progressPercent:
 
 internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress() {
     val progressPercent = currentPlaybackProgressPercent()
-    if (!shouldSendStopScrobble(hasRequestedScrobbleStartForCurrentItem, progressPercent)) {
+    if (!shouldSendStopScrobble(
+            hasActiveScrobble = hasRequestedScrobbleStartForCurrentItem,
+            hasStartAboveCompletionBar = hasSentStartAboveCompletionBarForCurrentItem,
+            progressPercent = progressPercent
+        )
+    ) {
         logScrobbleDiagnostic(
             "stop_current_skipped",
-            "reason=policy active=$hasRequestedScrobbleStartForCurrentItem progress=$progressPercent"
+            "reason=policy active=$hasRequestedScrobbleStartForCurrentItem " +
+                "aboveBar=$hasSentStartAboveCompletionBarForCurrentItem progress=$progressPercent"
         )
         return
     }
