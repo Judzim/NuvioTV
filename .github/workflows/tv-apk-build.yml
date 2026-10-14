@@ -42,7 +42,7 @@ jobs:
           SIMKL_APP_NAME=${{ secrets.SIMKL_APP_NAME }}
           TRAKT_CLIENT_ID=${{ secrets.TRAKT_CLIENT_ID || '7gX8ORSlYIeodQ1Fql-YPjL5S_74-lLOfiqNleX8mFY' }}
           TRAKT_CLIENT_SECRET=${{ secrets.TRAKT_CLIENT_SECRET }}
-          MDBLIST_CLIENT_ID=${{ secrets.MDBLIST_CLIENT_ID }}
+          MDBLIST_CLIENT_ID=${{ secrets.MDBLIST_CLIENT_ID || 'uRLWiB4yTVrE9Y3BkaKlVYCbXPhAMGtw1uQon4xl' }}
           NUVIO_SUPABASE_URL=${{ secrets.NUVIO_SUPABASE_URL }}
           NUVIO_SUPABASE_ANON_KEY=${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
           NUVIO_SUPABASE_FALLBACK_URL=${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
