@@ -68,7 +68,7 @@ class TraktAuthServiceTest {
         val traktApi = mockk<TraktApi>()
         val traktAuthDataStore = mockk<TraktAuthDataStore>()
         val requestSlot = slot<TraktDeviceCodeRequestDto>()
-        val verifierSlot = slot<String?>()
+        val verifierSlot = slot<String>()
 
         coEvery { traktAuthDataStore.getCurrentState() } returns TraktAuthState()
         coEvery { traktAuthDataStore.saveDeviceFlow(any(), any()) } returns Unit
@@ -92,12 +92,13 @@ class TraktAuthServiceTest {
         assertTrue(service.startDeviceAuth().isSuccess)
 
         coVerify { traktApi.requestDeviceCode(capture(requestSlot)) }
-        coVerify { traktAuthDataStore.saveDeviceFlow(any(), capture(verifierSlot)) }
 
         if (BuildConfig.TRAKT_CLIENT_SECRET.isBlank()) {
+            coVerify { traktAuthDataStore.saveDeviceFlow(any(), capture(verifierSlot)) }
             assertEquals("S256", requestSlot.captured.codeChallengeMethod)
-            assertEquals(traktCodeChallenge(verifierSlot.captured!!), requestSlot.captured.codeChallenge)
+            assertEquals(traktCodeChallenge(verifierSlot.captured), requestSlot.captured.codeChallenge)
         } else {
+            coVerify { traktAuthDataStore.saveDeviceFlow(any(), isNull()) }
             assertNull(requestSlot.captured.codeChallenge)
         }
     }
