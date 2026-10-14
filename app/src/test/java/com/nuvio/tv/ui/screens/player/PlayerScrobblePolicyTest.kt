@@ -58,4 +58,13 @@ class PlayerScrobblePolicyTest {
         assertFalse(shouldSendStopScrobble(hasActiveScrobble = false, progressPercent = 79.99f))
         assertTrue(shouldSendStopScrobble(hasActiveScrobble = false, progressPercent = 80f))
     }
+
+    @Test
+    fun `a start above the completion bar is sent once, and only above the bar`() {
+        assertFalse(shouldSendStartAboveCompletionBar(hasSentAboveCompletionBar = false, progressPercent = 79.9f))
+        assertTrue(shouldSendStartAboveCompletionBar(hasSentAboveCompletionBar = false, progressPercent = 80f))
+        assertTrue(shouldSendStartAboveCompletionBar(hasSentAboveCompletionBar = false, progressPercent = 95f))
+        // Sent once per item: pausing and resuming again does not send another one.
+        assertFalse(shouldSendStartAboveCompletionBar(hasSentAboveCompletionBar = true, progressPercent = 95f))
+    }
 }

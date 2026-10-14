@@ -143,7 +143,8 @@ class SimklTrackingScrobbler @Inject constructor(
                 action = action,
                 priorWatch = priorWatch,
                 nowEpochMs = System.currentTimeMillis(),
-                hasRunningSession = runningSessionId != null
+                hasRunningSession = runningSessionId != null,
+                progressPercent = enrichedEvent.progressPercent
             )
             if (askToStartRun && planAllowsRewatches) {
                 rewatchConsentRepository.ask(enrichedEvent.media)

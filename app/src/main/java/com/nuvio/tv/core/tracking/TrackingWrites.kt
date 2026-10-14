@@ -11,6 +11,17 @@ enum class TrackingSeekScrobblePolicy {
     STOP_AND_RESTART
 }
 
+/**
+ * Where a playback counts as already past the point the trackers report a completion at.
+ *
+ * One number for two sides that have to agree on it: the player, which reports a finished playback
+ * from here up, and each provider, which decides for itself what a start sent above it means. Trakt
+ * treats such a start as the beginning of a viewing, and the stop that follows would record the
+ * watch twice, so its scrobbler skips the start; a tracker whose "watching now" state is its own
+ * wants to hear about the playback anyway.
+ */
+internal const val TRACKING_COMPLETION_BAR_PERCENT = 80.0
+
 enum class TrackingListStatus(val wireValue: String) {
     WATCHING("watching"),
     PLAN_TO_WATCH("plantowatch"),
