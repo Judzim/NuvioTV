@@ -38,7 +38,8 @@ data class TraktAuthState(
     val userCode: String? = null,
     val verificationUrl: String? = null,
     val expiresAt: Long? = null,
-    val pollInterval: Int? = null
+    val pollInterval: Int? = null,
+    val codeVerifier: String? = null
 ) {
     val isAuthenticated: Boolean
         get() = !accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()
@@ -68,6 +69,7 @@ class TraktAuthDataStore @Inject constructor(
     private val verificationUrlKey = stringPreferencesKey("verification_url")
     private val expiresAtKey = longPreferencesKey("expires_at")
     private val pollIntervalKey = intPreferencesKey("poll_interval")
+    private val codeVerifierKey = stringPreferencesKey("code_verifier")
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
         factory.get(profileId, FEATURE)
@@ -86,7 +88,8 @@ class TraktAuthDataStore @Inject constructor(
                 userCode = preferences[userCodeKey],
                 verificationUrl = preferences[verificationUrlKey],
                 expiresAt = preferences[expiresAtKey],
-                pollInterval = preferences[pollIntervalKey]
+                pollInterval = preferences[pollIntervalKey],
+                codeVerifier = preferences[codeVerifierKey]
             )
         }
     }
@@ -113,7 +116,8 @@ class TraktAuthDataStore @Inject constructor(
             userCode = prefs[userCodeKey],
             verificationUrl = prefs[verificationUrlKey],
             expiresAt = prefs[expiresAtKey],
-            pollInterval = prefs[pollIntervalKey]
+            pollInterval = prefs[pollIntervalKey],
+            codeVerifier = prefs[codeVerifierKey]
         )
     }
 
@@ -142,7 +146,7 @@ class TraktAuthDataStore @Inject constructor(
         }
     }
 
-    suspend fun saveDeviceFlow(data: TraktDeviceCodeResponseDto) {
+    suspend fun saveDeviceFlow(data: TraktDeviceCodeResponseDto, codeVerifier: String? = null) {
         val now = System.currentTimeMillis()
         store().edit { preferences ->
             preferences[deviceCodeKey] = data.deviceCode
@@ -150,6 +154,11 @@ class TraktAuthDataStore @Inject constructor(
             preferences[verificationUrlKey] = data.verificationUrl
             preferences[expiresAtKey] = now + (data.expiresIn * 1000L)
             preferences[pollIntervalKey] = data.interval
+            if (codeVerifier.isNullOrBlank()) {
+                preferences.remove(codeVerifierKey)
+            } else {
+                preferences[codeVerifierKey] = codeVerifier
+            }
         }
     }
 
@@ -166,6 +175,7 @@ class TraktAuthDataStore @Inject constructor(
             preferences.remove(verificationUrlKey)
             preferences.remove(expiresAtKey)
             preferences.remove(pollIntervalKey)
+            preferences.remove(codeVerifierKey)
         }
     }
 
@@ -183,6 +193,7 @@ class TraktAuthDataStore @Inject constructor(
             preferences.remove(verificationUrlKey)
             preferences.remove(expiresAtKey)
             preferences.remove(pollIntervalKey)
+            preferences.remove(codeVerifierKey)
         }
     }
 }

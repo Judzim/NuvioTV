@@ -18,11 +18,29 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okio.ByteString.Companion.toByteString
 import retrofit2.Response
 import java.io.IOException
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** A fresh PKCE verifier: 32 random bytes, base64url without padding, 43 characters. */
+internal fun newTraktCodeVerifier(random: SecureRandom = SecureRandom()): String {
+    val bytes = ByteArray(32)
+    random.nextBytes(bytes)
+    return bytes.toByteString().encodeBase64Url()
+}
+
+/** The S256 challenge for a verifier, the form Trakt expects on the code request. */
+internal fun traktCodeChallenge(verifier: String): String {
+    return MessageDigest.getInstance("SHA-256")
+        .digest(verifier.toByteArray(Charsets.UTF_8))
+        .toByteString()
+        .encodeBase64Url()
+}
 
 sealed interface TraktTokenPollResult {
     data object Pending : TraktTokenPollResult
@@ -117,9 +135,16 @@ class TraktAuthService @Inject constructor(
         return BuildConfig.TRAKT_REDIRECT_URI.ifBlank { "urn:ietf:wg:oauth:2.0:oob" }
     }
 
+    /**
+     * Trakt stopped issuing client secrets to new apps; an app that has only a client id signs
+     * users in with PKCE instead, so the secret is optional.
+     */
     fun hasRequiredCredentials(): Boolean {
-        return BuildConfig.TRAKT_CLIENT_ID.isNotBlank() && BuildConfig.TRAKT_CLIENT_SECRET.isNotBlank()
+        return BuildConfig.TRAKT_CLIENT_ID.isNotBlank()
     }
+
+    private val usesPkce: Boolean
+        get() = BuildConfig.TRAKT_CLIENT_SECRET.isBlank()
 
     suspend fun getCurrentAuthState(): TraktAuthState = traktAuthDataStore.getCurrentState()
 
@@ -153,11 +178,19 @@ class TraktAuthService @Inject constructor(
             )
         }
 
+        // A secretless app signs the flow with PKCE: the challenge rides on the code request and
+        // the verifier comes back with the exchange, so a copied code is useless on its own.
+        val codeVerifier = if (usesPkce) newTraktCodeVerifier() else null
+
         // Issue a request, auto-retrying once on a transient 429 using the
         // Retry-After header when the server supplies a short back-off.
         suspend fun requestOnce(): Response<TraktDeviceCodeResponseDto> =
             traktApi.requestDeviceCode(
-                TraktDeviceCodeRequestDto(clientId = BuildConfig.TRAKT_CLIENT_ID)
+                TraktDeviceCodeRequestDto(
+                    clientId = BuildConfig.TRAKT_CLIENT_ID,
+                    codeChallenge = codeVerifier?.let(::traktCodeChallenge),
+                    codeChallengeMethod = if (codeVerifier != null) "S256" else null
+                )
             )
 
         var response = try {
@@ -180,7 +213,7 @@ class TraktAuthService @Inject constructor(
 
         val body = response.body()
         if (response.isSuccessful && body != null) {
-            traktAuthDataStore.saveDeviceFlow(body)
+            traktAuthDataStore.saveDeviceFlow(body, codeVerifier)
             return Result.success(body)
         }
 
@@ -208,12 +241,20 @@ class TraktAuthService @Inject constructor(
             return TraktTokenPollResult.Failed(context.getString(R.string.trakt_error_no_active_device_code))
         }
 
+        val codeVerifier = if (usesPkce) state.codeVerifier else null
+        if (usesPkce && codeVerifier.isNullOrBlank()) {
+            // A flow started before the app learned to sign in without a secret cannot be finished.
+            traktAuthDataStore.clearDeviceFlow()
+            return TraktTokenPollResult.Failed(context.getString(R.string.trakt_error_no_active_device_code))
+        }
+
         val response = try {
             traktApi.requestDeviceToken(
                 TraktDeviceTokenRequestDto(
                     code = deviceCode,
                     clientId = BuildConfig.TRAKT_CLIENT_ID,
-                    clientSecret = BuildConfig.TRAKT_CLIENT_SECRET
+                    clientSecret = BuildConfig.TRAKT_CLIENT_SECRET.ifBlank { null },
+                    codeVerifier = codeVerifier
                 )
             )
         } catch (e: IOException) {
@@ -276,8 +317,8 @@ class TraktAuthService @Inject constructor(
                     TraktRefreshTokenRequestDto(
                         refreshToken = refreshToken,
                         clientId = BuildConfig.TRAKT_CLIENT_ID,
-                        clientSecret = BuildConfig.TRAKT_CLIENT_SECRET,
-                        redirectUri = traktRedirectUri()
+                        clientSecret = BuildConfig.TRAKT_CLIENT_SECRET.ifBlank { null },
+                        redirectUri = if (usesPkce) null else traktRedirectUri()
                     )
                 )
             } catch (e: IOException) {
@@ -311,7 +352,7 @@ class TraktAuthService @Inject constructor(
                         TraktRevokeRequestDto(
                             token = accessToken,
                             clientId = BuildConfig.TRAKT_CLIENT_ID,
-                            clientSecret = BuildConfig.TRAKT_CLIENT_SECRET
+                            clientSecret = BuildConfig.TRAKT_CLIENT_SECRET.ifBlank { null }
                         )
                     )
                 }
