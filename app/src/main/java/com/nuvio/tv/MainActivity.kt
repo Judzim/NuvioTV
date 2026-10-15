@@ -1223,7 +1223,8 @@ open class MainActivity : ComponentActivity() {
                                 controller = ambientIdleController,
                                 allowed = currentRoute?.startsWith("player/") != true && autoNextOverlay == null,
                                 onShown = { trailerPlayerPool.stop() }
-                            )                        }
+                            )
+                        }
                     }
                 } 
             } 

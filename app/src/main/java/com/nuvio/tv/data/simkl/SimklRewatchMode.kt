@@ -51,12 +51,7 @@ internal const val SIMKL_WATCHED_THRESHOLD_MAX_PERCENT = 100
 internal val SimklWatchedThresholdRange: IntRange =
     SIMKL_WATCHED_THRESHOLD_MIN_PERCENT..SIMKL_WATCHED_THRESHOLD_MAX_PERCENT
 
-/*
- * Difference from mobile: mobile has a top level `simklWatchedThresholdPercent` getter that reads
- * `TrackingSettingsRepository.uiState.value`. TV has no such `object` repository for UI state, only
- * `TraktSettingsDataStore`, so the threshold is not read here. It is passed in as a parameter and
- * the scrobbler reads it from the store.
- */
+/* The completion threshold is a parameter here; the scrobbler reads it from the store. */
 
 internal fun coerceSimklWatchedThresholdPercent(percent: Int): Int = percent.coerceIn(
     minimumValue = SIMKL_WATCHED_THRESHOLD_MIN_PERCENT,

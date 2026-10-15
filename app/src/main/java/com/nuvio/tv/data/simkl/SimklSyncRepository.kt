@@ -171,13 +171,15 @@ class SimklSyncRepository @Inject constructor(
     /**
      * Stores the runs the account's rewatch sessions make, so a rewatch the user just confirmed shows
      * up in Continue Watching at once instead of after the next sync. The sessions come from the
-     * caller, which read them to answer whether the write landed.
+     * caller, which read them to answer whether the write landed; only the running rewatch sessions
+     * are kept, never the canonical rows read beside them.
      */
     internal suspend fun adoptRewatchSessions(sessions: List<SimklLibraryEntry>) =
         withContext(Dispatchers.IO) {
+            val runningSessions = sessions.runningRewatchSessions()
             val runs = runCatching {
                 deriveSimklRewatchRuns(
-                    entries = sessions,
+                    entries = runningSessions,
                     offerRuns = offersSimklRewatchRuns()
                 )
             }.getOrElse { error ->
@@ -192,11 +194,14 @@ class SimklSyncRepository @Inject constructor(
                 val current = _state.value
                 if (
                     current.snapshot.rewatchRuns == runs &&
-                    current.snapshot.rewatchSessions == sessions
+                    current.snapshot.rewatchSessions == runningSessions
                 ) {
                     return@withLock
                 }
-                val snapshot = current.snapshot.copy(rewatchRuns = runs, rewatchSessions = sessions)
+                val snapshot = current.snapshot.copy(
+                    rewatchRuns = runs,
+                    rewatchSessions = runningSessions
+                )
                 val projection = buildProjection(snapshot)
                 storage.save(profileId, encodeSnapshot(snapshot))
                 if (isCurrent(profileId, generation)) {
@@ -326,24 +331,18 @@ class SimklSyncRepository @Inject constructor(
         }
     }
 
-    /*
-     * Difference from mobile: mobile reads the rewatch setting from `TrackingSettingsRepository`.
-     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where
-     * the keys live. The callers are `suspend`, so the read is a single `first()`; while the mode is
-     * off, the runs are dropped, so the row never offers a session the app would not write into.
-     */
+    /* The mode is read from `TraktSettingsDataStore`; while it is off the runs are dropped. */
     private suspend fun offersSimklRewatchRuns(): Boolean =
         settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF
 
     /*
-     * Difference from mobile: mobile reads `simklWatchedThresholdPercent` from `TrackingSettingsRepository`.
-     * TV has no such `object` repository for UI state, so the threshold is read from `TraktSettingsDataStore`,
-     * the same as `simklRewatchMode`. The projection is `suspend`, so the read is a single `first()`;
-     * when the setting cannot be read, the threshold is not passed in and a playback row keeps the source
-     * default of 80 percent. The threshold decides on the write side (the scrobbler), that is when a
-     * playback is reported as finished. On the Continue Watching read it no longer decides that a playback
-     * is finished: a playback row is a position the provider keeps open, and such a row is never closed by
-     * a percentage, so an episode stopped at 86 percent with a threshold of 95 stays in the row. The
+     * The threshold is read from `TraktSettingsDataStore`, the same as the rewatch mode. The
+     * projection is `suspend`, so the read is a single `first()`; when the setting cannot be read,
+     * the threshold is not passed in and a playback row keeps the source default of 80 percent. The
+     * threshold decides on the write side (the scrobbler), that is when a playback is reported as
+     * finished. On the Continue Watching read it no longer decides that a playback is finished: a
+     * playback row is a position the provider keeps open, and such a row is never closed by a
+     * percentage, so an episode stopped at 86 percent with a threshold of 95 stays in the row. The
      * threshold is still passed to the row, and the row carries it as the number it was reported with.
      */
     private suspend fun completionThresholdFraction(): Float? = try {

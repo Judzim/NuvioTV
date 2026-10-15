@@ -37,9 +37,12 @@ class SimklSyncEngineTest {
             every { manager.activeProfileId } returns MutableStateFlow(1)
         }
     )
+    private val authStorage = mockk<SimklAuthStorage>(relaxed = true).also { storage ->
+        every { storage.state } returns MutableStateFlow(SimklAuthState(accountType = "vip"))
+    }
 
     private fun engine(remote: SimklSyncRemote, now: () -> Long): SimklSyncEngine =
-        SimklSyncEngine(remote, settingsDataStore, now)
+        SimklSyncEngine(remote, settingsDataStore, authStorage, now)
 
     @Test
     fun `documented all items fixture decodes flexible ids and nullable fields`() {
@@ -485,23 +488,46 @@ class SimklSyncEngineTest {
     }
 
     @Test
-    fun `a stored off rewatch mode keeps every run out`() = runBlocking {
+    fun `a stored off rewatch mode keeps every run and session out`() = runBlocking {
         settingsDataStore.setSimklRewatchMode(SimklRewatchMode.OFF)
         val remote = ScriptedRemote(
             Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
             Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
             Step.AllItems(SimklMediaType.ANIME, SimklAllItemsResponse(anime = emptyList())),
             Step.Playback(listOf(playback("1"))),
-            Step.Activities(activities(all = "v1")),
-            Step.RewatchSessions(
-                listOf(rewatchEntry("1", season = 2, watched = listOf(6 to REWATCH_OLDER, 7 to REWATCH_NEWER)))
-            )
+            Step.Activities(activities(all = "v1"))
         )
 
         val result = engine(remote) { 900L }.synchronize(SimklSyncSnapshot())
 
+        // The mode is off, so the sessions are not read at all: the whole show library stays off the
+        // wire, and nothing is kept on the snapshot.
         assertTrue(result.rewatchRuns.isEmpty())
-        assertEquals(1, result.rewatchSessions.size)
+        assertTrue(result.rewatchSessions.isEmpty())
+        assertEquals(0, remote.rewatchSessionReads)
+        assertTrue(remote.isExhausted)
+    }
+
+    @Test
+    fun `a plan without rewatches skips the session read too`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        every { authStorage.state } returns MutableStateFlow(SimklAuthState(accountType = "free"))
+        val remote = ScriptedRemote(
+            Step.AllItems(SimklMediaType.SHOWS, responseOf(entry(SimklMediaType.SHOWS, "1"))),
+            Step.AllItems(SimklMediaType.MOVIES, SimklAllItemsResponse(movies = emptyList())),
+            Step.AllItems(SimklMediaType.ANIME, SimklAllItemsResponse(anime = emptyList())),
+            Step.Playback(listOf(playback("1"))),
+            Step.Activities(activities(all = "v1"))
+        )
+
+        val result = engine(remote) { 900L }.synchronize(SimklSyncSnapshot())
+
+        // The mode is on but the plan cannot hold rewatch sessions, so the read is skipped all the
+        // same: the sessions would matter to nothing.
+        assertTrue(result.rewatchRuns.isEmpty())
+        assertTrue(result.rewatchSessions.isEmpty())
+        assertEquals(0, remote.rewatchSessionReads)
+        assertTrue(remote.isExhausted)
     }
 
     @Test
@@ -540,6 +566,7 @@ class SimklSyncEngineTest {
 
     @Test
     fun `a failed rewatch read keeps the runs the previous sync found`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
         val previousRun = RewatchRunPosition(
             contentId = "simkl:1",
             seasonNumber = 2,
@@ -627,7 +654,7 @@ class SimklSyncEngineTest {
     }
 
     @Test
-    fun `a stored snapshot keeps its rewatch fields and schema version`() {
+    fun `a stored snapshot keeps its rewatch fields`() {
         val storageJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
         val snapshot = SimklSyncSnapshot(
             isInitialized = true,
@@ -649,7 +676,6 @@ class SimklSyncEngineTest {
             storageJson.encodeToString(snapshot)
         )
 
-        assertEquals(2, restored.schemaVersion)
         assertEquals(snapshot.rewatchRuns, restored.rewatchRuns)
         assertEquals(snapshot.rewatchSessions, restored.rewatchSessions)
         assertEquals(snapshot.entries, restored.entries)
@@ -670,9 +696,8 @@ class SimklSyncEngineTest {
 
         val restored = json.decodeFromString<SimklSyncSnapshot>(payload)
 
-        // The payload keeps the version it was stored with, so a snapshot from an older app stays
-        // recognizable in the file; the fields this update added come back as their defaults.
-        assertEquals(1, restored.schemaVersion)
+        // An older app stored a `schemaVersion` this app no longer carries; it is ignored on decode
+        // and the fields this update added come back as their defaults.
         assertEquals("v1", restored.watermark)
         assertTrue(restored.rewatchRuns.isEmpty())
         assertTrue(restored.rewatchSessions.isEmpty())
@@ -689,6 +714,8 @@ class SimklSyncEngineTest {
     private class ScriptedRemote(vararg steps: Step) : SimklSyncRemote {
         private val remaining = steps.toMutableList()
         val allItemsRequests = mutableListOf<SimklAllItemsRequest>()
+        var rewatchSessionReads = 0
+            private set
         val isExhausted: Boolean get() = remaining.isEmpty()
 
         override suspend fun fetchActivities(): SimklActivities = when (val step = next()) {
@@ -721,8 +748,9 @@ class SimklSyncEngineTest {
          * rewatches leaves its step out and the account answers with no sessions. A scripted failure
          * is still handed over, which is what the fallback of the engine is asserted with.
          */
-        override suspend fun fetchRewatchSessions(): List<SimklLibraryEntry> =
-            when (val step = remaining.firstOrNull()) {
+        override suspend fun fetchRewatchSessions(): List<SimklLibraryEntry> {
+            rewatchSessionReads += 1
+            return when (val step = remaining.firstOrNull()) {
                 is Step.RewatchSessions -> {
                     remaining.removeAt(0)
                     step.value
@@ -733,6 +761,7 @@ class SimklSyncEngineTest {
                 }
                 else -> emptyList()
             }
+        }
 
         private fun next(): Step = remaining.removeAt(0)
     }

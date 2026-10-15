@@ -18,10 +18,7 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
  * the most recently rewatched episode is the run. A run the user is in is always offered; the mode
  * decides whether the account is asked about rewatches at all (see [SimklRewatchMode]).
  *
- * Difference from mobile: mobile takes `animeIdPreference` and groups through
- * `canonicalContentId(preference)`. The TV `SimklMedia.canonicalContentId()` takes no parameter and
- * keeps the anime preference in `SimklAnimeIdPreferenceHolder`, so grouping on `contentId` goes
- * through it and the preference shows up only in the rest of the pipeline.
+ * TV groups on `contentId`, which reads the anime preference from `SimklAnimeIdPreferenceHolder`.
  */
 internal fun deriveSimklRewatchRuns(
     entries: List<SimklLibraryEntry>,
@@ -130,6 +127,17 @@ private fun consecutiveChains(episodes: List<RewatchedEpisode>): List<List<Rewat
                     chains
                 }
         }
+
+/**
+ * The rows of a read that are rewatch sessions, kept for the snapshot and the derivation.
+ *
+ * A session the account still reports as running is the run the user is in; a closed or finished one
+ * is a run they left, and a canonical row is not a session at all. Storing only this subset keeps the
+ * whole show library out of the snapshot while every reader keeps working, since each one already
+ * filters to exactly these rows.
+ */
+internal fun List<SimklLibraryEntry>.runningRewatchSessions(): List<SimklLibraryEntry> =
+    filter { entry -> entry.isRewatch && entry.isRunningRewatchSession() }
 
 /**
  * The episodes the running session of the item holds: what a rewatch in progress has covered so far.

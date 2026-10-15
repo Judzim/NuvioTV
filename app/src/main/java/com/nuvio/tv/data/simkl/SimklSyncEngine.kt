@@ -7,13 +7,15 @@ import kotlinx.coroutines.flow.first
 class SimklSyncEngine internal constructor(
     private val remote: SimklSyncRemote,
     private val settingsDataStore: TraktSettingsDataStore,
+    private val authStorage: SimklAuthStorage,
     private val nowEpochMs: () -> Long
 ) {
     @Inject
     constructor(
         remote: SimklSyncRemote,
-        settingsDataStore: TraktSettingsDataStore
-    ) : this(remote, settingsDataStore, System::currentTimeMillis)
+        settingsDataStore: TraktSettingsDataStore,
+        authStorage: SimklAuthStorage
+    ) : this(remote, settingsDataStore, authStorage, System::currentTimeMillis)
 
     suspend fun synchronize(current: SimklSyncSnapshot): SimklSyncSnapshot {
         if (!current.isInitialized) return initialSync()
@@ -83,16 +85,24 @@ class SimklSyncEngine internal constructor(
     /**
      * Reads the rewatch sessions of the account, keeps them, and turns them into runs.
      *
-     * A failed read keeps what the previous sync found: losing the network must not empty the
-     * Continue Watching cards the user is looking at.
+     * While rewatches cannot be recorded the read is skipped: the sessions would matter to nothing,
+     * and pulling the whole show library on every sync for a user who never turns the feature on is
+     * not worth it. A failed read keeps what the previous sync found: losing the network must not
+     * empty the Continue Watching cards the user is looking at.
      */
-    private suspend fun readRewatchRuns(current: SimklSyncSnapshot?): SimklRewatchRead =
-        runCatching {
-            val sessions = remote.fetchRewatchSessions()
+    private suspend fun readRewatchRuns(current: SimklSyncSnapshot?): SimklRewatchRead {
+        if (!offersSimklRewatchRuns()) {
+            return SimklRewatchRead(
+                runs = current?.rewatchRuns.orEmpty(),
+                sessions = current?.rewatchSessions.orEmpty()
+            )
+        }
+        return runCatching {
+            val sessions = remote.fetchRewatchSessions().runningRewatchSessions()
             SimklRewatchRead(
                 runs = deriveSimklRewatchRuns(
                     entries = sessions,
-                    offerRuns = offersSimklRewatchRuns()
+                    offerRuns = true
                 ),
                 sessions = sessions
             )
@@ -102,16 +112,15 @@ class SimklSyncEngine internal constructor(
                 sessions = current?.rewatchSessions.orEmpty()
             )
         }
+    }
 
     /*
-     * Difference from mobile: mobile reads the rewatch setting from `TrackingSettingsRepository`.
-     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where
-     * the keys live. The read is therefore `suspend`, and the caller `readRewatchRuns` is `suspend`
-     * too. Only the recording mode decides here: while rewatches are off, runs of the account are
-     * not read at all, so the row never offers a session the app would not write into.
+     * The recording mode and the account plan decide together whether the account can record
+     * rewatches at all; while it cannot, the sessions above are not read.
      */
     private suspend fun offersSimklRewatchRuns(): Boolean =
-        settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF
+        settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF &&
+            isSimklRewatchPlanEligible(authStorage.state.value.accountType)
 }
 
 fun mergeSimklDelta(

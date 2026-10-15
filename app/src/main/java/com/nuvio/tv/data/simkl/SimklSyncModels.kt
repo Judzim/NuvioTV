@@ -182,7 +182,6 @@ data class SimklPlaybackSession(
 
 @Serializable
 data class SimklSyncSnapshot(
-    val schemaVersion: Int = 2,
     val isInitialized: Boolean = false,
     val watermark: String? = null,
     val activities: SimklActivities? = null,

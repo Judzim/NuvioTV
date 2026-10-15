@@ -180,6 +180,22 @@ class SimklRewatchRunsTest {
     }
 
     @Test
+    fun `only the running rewatch sessions are kept from a read`() {
+        val rows = listOf(
+            rewatchRow(rewatched = listOf(Marked(season = 1, episode = 1)), isRewatch = true),
+            // A session the user closed is a run they left, so it is not kept.
+            rewatchRow(rewatched = listOf(Marked(season = 1, episode = 2)), isRewatch = true, status = "closed"),
+            // And a canonical row is not a session either.
+            rewatchRow(rewatched = listOf(Marked(season = 1, episode = 3)), isRewatch = false),
+        )
+
+        val kept = rows.runningRewatchSessions()
+
+        assertEquals(1, kept.size)
+        assertEquals(1, kept.single().seasons.single().episodes.single().number)
+    }
+
+    @Test
     fun `the running session tells which episodes a run has rewatched`() {
         val rows = listOf(
             rewatchRow(

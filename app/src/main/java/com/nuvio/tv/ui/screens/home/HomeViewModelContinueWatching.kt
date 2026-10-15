@@ -3255,10 +3255,18 @@ internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String) {
         }
         ?.rewatchId
         ?: return
-    simklRewatchWriter.closeRewatchSession(
+    val closed = simklRewatchWriter.closeRewatchSession(
         media = snapshot.mediaReference(contentId = run.contentId, contentType = SERIES_CONTENT_TYPE),
         rewatchId = sessionId
     )
+    if (!closed) return
+    // Closing the session removes the run everywhere, so a dismissal the row saved under one of the
+    // run's id forms must not keep hiding the series once it is back on its canonical card. Clearing
+    // after the close landed, and only here, is the trade: the blanket clearing on every emission
+    // also swept away a stale dismissal a build that could not close a session left behind.
+    for (key in run.matchKeys) {
+        traktSettingsDataStore.removeDismissedNextUpKeysForContent(key)
+    }
 }
 
 /** The content type the catalogue uses for series, which is what a run is read as. */

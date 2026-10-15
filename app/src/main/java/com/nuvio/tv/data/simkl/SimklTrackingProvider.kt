@@ -157,11 +157,20 @@ class SimklTrackingScrobbler @Inject constructor(
                 rewatchConsentRepository.ask(enrichedEvent.media)
             }
         }
-        // A session the account just took is not on the snapshot until the sessions are read again,
-        // and Continue Watching follows that read: asking for a refresh keeps the row current
-        // instead of waiting for the next sync.
-        if (action == TrackingScrobbleAction.STOP && result.rewatchId != null) {
-            syncRepository.refreshAsync(TrackingRefreshIntent.INVALIDATED)
+        if (action == TrackingScrobbleAction.STOP) {
+            // A dismissal is for the playback it happened during: the playback has ended, so the
+            // series may be asked about again the next time it plays.
+            rewatchConsentRepository.clearDismissal(enrichedEvent.media)
+            if (result.rewatchId != null) {
+                // A rewatch was actually recorded, so the yes before the playback has done its job.
+                // This is the release a running session already made for a show, and the only one a
+                // movie gets, since movie sessions are never read.
+                rewatchConsentRepository.releaseGrant(enrichedEvent.media)
+                // A session the account just took is not on the snapshot until the sessions are read
+                // again, and Continue Watching follows that read: asking for a refresh keeps the row
+                // current instead of waiting for the next sync.
+                syncRepository.refreshAsync(TrackingRefreshIntent.INVALIDATED)
+            }
         }
         Log.d(
             TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
@@ -171,12 +180,9 @@ class SimklTrackingScrobbler @Inject constructor(
     }
 
     /*
-     * Difference from mobile: mobile reads `simklRewatchMode` and `simklWatchedThresholdPercent` from
-     * `TrackingSettingsRepository`. TV has no such `object` repository, so both values are read from
-     * `TraktSettingsDataStore`, where the keys live. `scrobble` is `suspend`, so the read is a single
-     * `first()` at the start of the path, the same as `minimumRewatchRunEpisodes` in
-     * `SimklSyncRepository.kt` and `SimklSyncEngine.kt`. A change on the settings screen therefore
-     * changes the behaviour at the next scrobble.
+     * The rewatch mode and the completion threshold are read from `TraktSettingsDataStore`, a single
+     * `first()` at the start of the path, so a change on the settings screen takes effect at the next
+     * scrobble.
      */
     private suspend fun rewatchMode(): SimklRewatchMode =
         settingsDataStore.simklRewatchMode.first()
