@@ -3052,8 +3052,6 @@
 
     <!-- Playback network -->
     <string name="playback_net_device_memory_info">Pamięć urządzenia: %1$s | Zalecany bezpieczny limit: %2$d MB</string>
-    <string name="playback_net_http2">Włącz HTTP/2</string>
-    <string name="playback_net_http2_sub">Włącz protokół HTTP/2 dla połączeń sieciowych, umożliwiając multipleksowanie żądań i szybsze uzgadnianie.</string>
     <string name="playback_net_nuvio_performance_mode">Pamięć natywna ExoPlayer</string>
     <string name="playback_net_nuvio_performance_mode_not_supported">Ta funkcja nie jest obsługiwana przez Twoje urządzenie.</string>
     <string name="playback_net_nuvio_performance_mode_sub">Włącz natywny alokator pamięci poza stertą i optymalizacje przewijania.</string>

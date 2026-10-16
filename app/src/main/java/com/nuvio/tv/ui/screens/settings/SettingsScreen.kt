@@ -435,6 +435,7 @@ fun SettingsScreen(
             }
 
             var focusedTabCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+            var lastRailFocusChangeMs by remember { mutableLongStateOf(0L) }
             val selectFocusedTab: (SettingsCategory) -> Unit = { category ->
                 if (selectedCategory != category) {
                     if (category == SettingsCategory.INTEGRATION) {
@@ -447,8 +448,15 @@ fun SettingsScreen(
 
             LaunchedEffect(focusedTabCategory) {
                 val category = focusedTabCategory ?: return@LaunchedEffect
-                delay(SETTINGS_TAB_FOCUS_SELECT_DELAY_MS)
-                selectFocusedTab(category)
+                val now = android.os.SystemClock.uptimeMillis()
+                val msSinceLast = now - lastRailFocusChangeMs
+                lastRailFocusChangeMs = now
+                if (msSinceLast > SETTINGS_TAB_FOCUS_SELECT_DELAY_MS) {
+                    selectFocusedTab(category)
+                } else {
+                    delay(SETTINGS_TAB_FOCUS_SELECT_DELAY_MS)
+                    selectFocusedTab(category)
+                }
             }
 
             if (isHorizonStyle) {
@@ -570,7 +578,10 @@ fun SettingsScreen(
                                             topBarCoordinates?.let { container ->
                                                 focusedTabBounds = container.localBoundingBoxOf(tabCoordinates, clipBounds = false)
                                             }
-                                        }
+                                        },
+                                        suppressSelectedVisual = railHadFocus
+                                            && focusedTabCategory != null
+                                            && focusedTabCategory != section.category
                                     )
                                 }
                             }
@@ -731,7 +742,10 @@ fun SettingsScreen(
                                     rawIconRes = section.rawIconRes,
                                     isSelected = selectedCategory == section.category,
                                     focusRequester = railFocusRequesters[section.category],
-                                    onClick = { onSectionClick(section) }
+                                    onClick = { onSectionClick(section) },
+                                    suppressSelectedVisual = railHadFocus
+                                        && focusedTabCategory != null
+                                        && focusedTabCategory != section.category
                                 )
                             }
                         }

@@ -465,6 +465,7 @@ fun StreamScreen(
                         scope.coroutineLaunch {
                             val playbackInfo = viewModel.resolveStreamForPlayback(stream)
                             if (playbackInfo != null) {
+                                viewModel.persistBingeGroupForStream(stream)
                                 pendingRestoreOnResume = true
                                 routePlayback(playbackInfo)
                                 viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
@@ -747,6 +748,7 @@ private fun RightStreamSection(
     var enter by remember { mutableStateOf(false) }
     var firstStreamFocusRequestId by remember { mutableStateOf(0) }
     var listHasFocus by remember { mutableStateOf(false) }
+    var focusedStreamKeyInList by remember { mutableStateOf<String?>(null) }
     var userMovedFromFirstResult by remember { mutableStateOf(shouldRestoreFocusedStream) }
     var firstResultFocusAssigned by remember { mutableStateOf(shouldRestoreFocusedStream) }
     val scope = rememberCoroutineScope()
@@ -801,16 +803,17 @@ private fun RightStreamSection(
             firstStreamFocusRequestId += 1
         }
     }
-    // When on "All" tab and new results arrive above the focused stream, move focus to the new first item.
     var trackedFirstStreamKey by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(firstStreamKey, selectedAddonFilter, listHasFocus) {
         if (selectedAddonFilter != null) {
             trackedFirstStreamKey = firstStreamKey
             return@LaunchedEffect
         }
+        val focusWasOnFirst = trackedFirstStreamKey != null &&
+            focusedStreamKeyInList == trackedFirstStreamKey
         if (firstStreamKey != null && trackedFirstStreamKey != null &&
             firstStreamKey != trackedFirstStreamKey &&
-            listHasFocus && !userMovedFromFirstResult
+            listHasFocus && focusWasOnFirst
         ) {
             firstStreamFocusRequestId += 1
         }
@@ -926,6 +929,7 @@ private fun RightStreamSection(
                             onUserNavigatedFromFirstResult = {
                                 userMovedFromFirstResult = true
                             },
+                            onFocusedStreamKeyChanged = { focusedStreamKeyInList = it },
                             onFocusChanged = { listHasFocus = it },
                             onExpandStreams = onExpandStreams
                         )
@@ -1042,6 +1046,7 @@ private fun StreamsList(
     orderedAddonNames: List<String> = emptyList(),
     onRequestChipFocus: (Int) -> Unit = {},
     onUserNavigatedFromFirstResult: () -> Unit = {},
+    onFocusedStreamKeyChanged: (String?) -> Unit = {},
     onFocusChanged: (Boolean) -> Unit = {},
     onExpandStreams: () -> Unit = {}
 ) {
@@ -1076,7 +1081,7 @@ private fun StreamsList(
         if (key != null && prevKeys !== streamKeys) {
             val oldIndex = prevKeys.indexOf(key)
             val newIndex = streamKeys.indexOf(key)
-            if (oldIndex >= 0 && newIndex >= 0 && oldIndex != newIndex) {
+            if (oldIndex >= 0 && newIndex >= 0 && oldIndex != newIndex && oldIndex > 0) {
                 val shift = newIndex - oldIndex
                 val correctedFirst = (streamListState.firstVisibleItemIndex + shift)
                     .coerceIn(0, (streamKeys.size - 1).coerceAtLeast(0))
@@ -1196,6 +1201,7 @@ private fun StreamsList(
                     onFocusChanged = { focused ->
                         if (focused) {
                             focusedStreamKey = streamKeys.getOrNull(index)
+                            onFocusedStreamKeyChanged(focusedStreamKey)
                         }
                         if (index == 0) {
                             firstCardHasFocus = focused

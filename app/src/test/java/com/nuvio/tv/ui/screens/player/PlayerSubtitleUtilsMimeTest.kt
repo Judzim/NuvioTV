@@ -102,5 +102,6 @@ class PlayerSubtitleUtilsMimeTest {
         assertEquals("vi", PlayerSubtitleUtils.normalizeLanguageCode("VIETNAMESE"))
         assertEquals("sv", PlayerSubtitleUtils.normalizeLanguageCode("swedish"))
         assertEquals("tr", PlayerSubtitleUtils.normalizeLanguageCode("Turkish (Forced)"))
+        assertEquals("sr", PlayerSubtitleUtils.normalizeLanguageCode("hbs-srp"))
     }
 }
