@@ -151,7 +151,7 @@ class SimklTrackingScrobblerTest {
     }
 
     @Test
-    fun `a recorded rewatch releases the yes for the media`() = runBlocking {
+    fun `a recorded rewatch for a show leaves the yes in place`() = runBlocking {
         connect()
         accountAnswers(
             scrobbleResult(
@@ -163,8 +163,30 @@ class SimklTrackingScrobblerTest {
 
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 95.0))
 
-        // The rewatch landed, so the yes before the playback has done its job. Movies are never read
-        // as sessions, so this is the only release they get.
+        // The show's session only reaches the snapshot a few seconds later, so releasing here would
+        // leave autoplay's next episode with no grant and no running session: the yes stays until a
+        // running session is seen.
+        verify(exactly = 0) { consentRepository.releaseGrant(any()) }
+    }
+
+    @Test
+    fun `a recorded rewatch for a movie releases the yes`() = runBlocking {
+        connect()
+        accountAnswers(
+            scrobbleResult(
+                outcome = SimklScrobbleOutcome.SCROBBLE,
+                progress = 95.0,
+                rewatchId = 4711L
+            )
+        )
+
+        scrobbler.scrobble(
+            TrackingScrobbleAction.STOP,
+            event(progressPercent = 95.0, kind = TrackingMediaKind.MOVIE)
+        )
+
+        // A movie's session is never read, so the stop that recorded the rewatch is the only release
+        // the yes gets.
         verify(exactly = 1) { consentRepository.releaseGrant(any()) }
     }
 
@@ -466,13 +488,21 @@ class SimklTrackingScrobblerTest {
         } returns result
     }
 
-    private fun event(progressPercent: Double, contentEndPercent: Double? = null) = TrackingScrobbleEvent(
+    private fun event(
+        progressPercent: Double,
+        contentEndPercent: Double? = null,
+        kind: TrackingMediaKind = TrackingMediaKind.SHOW
+    ) = TrackingScrobbleEvent(
         media = TrackingMediaReference(
-            kind = TrackingMediaKind.SHOW,
+            kind = kind,
             title = "Dark",
             year = 2017,
             ids = TrackingExternalIds(imdb = "tt5753856"),
-            episode = TrackingEpisode(season = 2, number = 7)
+            episode = if (kind == TrackingMediaKind.MOVIE) {
+                null
+            } else {
+                TrackingEpisode(season = 2, number = 7)
+            }
         ),
         progressPercent = progressPercent,
         contentEndPercent = contentEndPercent

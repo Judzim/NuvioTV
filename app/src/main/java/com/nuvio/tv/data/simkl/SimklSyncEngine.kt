@@ -87,15 +87,25 @@ class SimklSyncEngine internal constructor(
      *
      * While rewatches cannot be recorded the read is skipped: the sessions would matter to nothing,
      * and pulling the whole show library on every sync for a user who never turns the feature on is
-     * not worth it. A failed read keeps what the previous sync found: losing the network must not
-     * empty the Continue Watching cards the user is looking at.
+     * not worth it. A skipped read drops the runs the snapshot still carries only when the reason is
+     * known and final: the mode is off, or the plan has loaded and cannot hold sessions. A plan that
+     * has not loaded yet keeps them, so starting the app does not blank the row. A failed read keeps
+     * what the previous sync found: losing the network must not empty the Continue Watching cards the
+     * user is looking at.
      */
     private suspend fun readRewatchRuns(current: SimklSyncSnapshot?): SimklRewatchRead {
-        if (!offersSimklRewatchRuns()) {
-            return SimklRewatchRead(
-                runs = current?.rewatchRuns.orEmpty(),
-                sessions = current?.rewatchSessions.orEmpty()
-            )
+        val mode = settingsDataStore.simklRewatchMode.first()
+        val accountType = authStorage.state.value.accountType
+        if (mode == SimklRewatchMode.OFF || !isSimklRewatchPlanEligible(accountType)) {
+            val knownToHoldNoSessions = mode == SimklRewatchMode.OFF || accountType != null
+            return if (knownToHoldNoSessions) {
+                SimklRewatchRead(runs = emptyList(), sessions = emptyList())
+            } else {
+                SimklRewatchRead(
+                    runs = current?.rewatchRuns.orEmpty(),
+                    sessions = current?.rewatchSessions.orEmpty()
+                )
+            }
         }
         return runCatching {
             val sessions = remote.fetchRewatchSessions().runningRewatchSessions()
@@ -113,14 +123,6 @@ class SimklSyncEngine internal constructor(
             )
         }
     }
-
-    /*
-     * The recording mode and the account plan decide together whether the account can record
-     * rewatches at all; while it cannot, the sessions above are not read.
-     */
-    private suspend fun offersSimklRewatchRuns(): Boolean =
-        settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF &&
-            isSimklRewatchPlanEligible(authStorage.state.value.accountType)
 }
 
 fun mergeSimklDelta(

@@ -3,6 +3,7 @@ package com.nuvio.tv.data.simkl
 import android.util.Log
 import com.nuvio.tv.core.tracking.TRACKING_SCROBBLE_DIAGNOSTIC_TAG
 import com.nuvio.tv.core.tracking.TrackingCapability
+import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingProvider
 import com.nuvio.tv.core.tracking.TrackingProviderDescriptor
 import com.nuvio.tv.core.tracking.TrackingProviderId
@@ -163,9 +164,13 @@ class SimklTrackingScrobbler @Inject constructor(
             rewatchConsentRepository.clearDismissal(enrichedEvent.media)
             if (result.rewatchId != null) {
                 // A rewatch was actually recorded, so the yes before the playback has done its job.
-                // This is the release a running session already made for a show, and the only one a
-                // movie gets, since movie sessions are never read.
-                rewatchConsentRepository.releaseGrant(enrichedEvent.media)
+                // For a movie this is the only release it gets, since movie sessions are never read.
+                // A show keeps the grant until a running session is seen above: its session only
+                // reaches the snapshot a few seconds later, and releasing here would leave
+                // autoplay's next episode with no grant and no running session, asking again.
+                if (enrichedEvent.media.kind == TrackingMediaKind.MOVIE) {
+                    rewatchConsentRepository.releaseGrant(enrichedEvent.media)
+                }
                 // A session the account just took is not on the snapshot until the sessions are read
                 // again, and Continue Watching follows that read: asking for a refresh keeps the row
                 // current instead of waiting for the next sync.

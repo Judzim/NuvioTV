@@ -44,6 +44,23 @@ class SimklSyncEngineTest {
     private fun engine(remote: SimklSyncRemote, now: () -> Long): SimklSyncEngine =
         SimklSyncEngine(remote, settingsDataStore, authStorage, now)
 
+    /** A snapshot from a previous sync that already holds a run and the session it came from. */
+    private fun storedRewatchSnapshot(): SimklSyncSnapshot = SimklSyncSnapshot(
+        isInitialized = true,
+        watermark = "v1",
+        activities = activities(all = "v1", library = "l1", playback = "p1"),
+        entries = listOf(entry(SimklMediaType.SHOWS, "1")),
+        rewatchRuns = listOf(
+            RewatchRunPosition(
+                contentId = "simkl:1",
+                seasonNumber = 2,
+                episodeNumber = 7,
+                markedAtEpochMs = 5L
+            )
+        ),
+        rewatchSessions = listOf(rewatchEntry("1", season = 2, watched = listOf(6 to REWATCH_OLDER)))
+    )
+
     @Test
     fun `documented all items fixture decodes flexible ids and nullable fields`() {
         val response = json.decodeFromString<SimklAllItemsResponse>(ALL_ITEMS_FIXTURE)
@@ -592,6 +609,60 @@ class SimklSyncEngineTest {
         assertEquals(listOf(previousRun), result.rewatchRuns)
         assertEquals(listOf(previousSession), result.rewatchSessions)
         assertEquals("v2", result.watermark)
+        assertTrue(remote.isExhausted)
+    }
+
+    @Test
+    fun `a plan that cannot hold sessions drops the stored runs`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        every { authStorage.state } returns MutableStateFlow(SimklAuthState(accountType = "free"))
+        val remote = ScriptedRemote(
+            Step.Activities(activities(all = "v2", library = "l1", playback = "p1"))
+        )
+
+        val result = engine(remote) { 900L }.synchronize(storedRewatchSnapshot())
+
+        // The mode is on but the plan has loaded and cannot hold sessions, so the runs the previous
+        // sync kept can no longer be held and must not stay on the row.
+        assertTrue(result.rewatchRuns.isEmpty())
+        assertTrue(result.rewatchSessions.isEmpty())
+        assertEquals(0, remote.rewatchSessionReads)
+        assertTrue(remote.isExhausted)
+    }
+
+    @Test
+    fun `an unloaded plan keeps the stored runs`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        every { authStorage.state } returns MutableStateFlow(SimklAuthState(accountType = null))
+        val current = storedRewatchSnapshot()
+        val remote = ScriptedRemote(
+            Step.Activities(activities(all = "v2", library = "l1", playback = "p1"))
+        )
+
+        val result = engine(remote) { 900L }.synchronize(current)
+
+        // The plan has not loaded yet, so the read is only waiting: what the previous sync found is
+        // kept rather than blanked while the app starts.
+        assertEquals(current.rewatchRuns, result.rewatchRuns)
+        assertEquals(current.rewatchSessions, result.rewatchSessions)
+        assertEquals(0, remote.rewatchSessionReads)
+        assertTrue(remote.isExhausted)
+    }
+
+    @Test
+    fun `a stored off mode drops the stored runs`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.OFF)
+        val remote = ScriptedRemote(
+            Step.Activities(activities(all = "v2", library = "l1", playback = "p1"))
+        )
+
+        val result = engine(remote) { 900L }.synchronize(storedRewatchSnapshot())
+
+        // The mode is off, so the account is known to hold no sessions and the stored runs are
+        // dropped from the row.
+        assertTrue(result.rewatchRuns.isEmpty())
+        assertTrue(result.rewatchSessions.isEmpty())
+        assertEquals(0, remote.rewatchSessionReads)
         assertTrue(remote.isExhausted)
     }
 
