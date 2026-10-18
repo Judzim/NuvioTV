@@ -6,6 +6,9 @@ name: Mobile port APK (via TV fork)
 # It is not part of any pull request.
 
 on:
+  push:
+    branches:
+      - mobile-port-build
   workflow_dispatch:
 
 permissions:
