@@ -28,11 +28,9 @@ jobs:
       KOTLIN_DAEMON_JVMARGS: -Xmx2048m -XX:MaxMetaspaceSize=512m
     steps:
       - name: Check out the mobile port branch
-        uses: actions/checkout@v6
-        with:
-          repository: Judzim/NuvioMobile
-          ref: simkl-rewatch-build-2
-          persist-credentials: false
+        # The token of this repository cannot read another one, and the mobile fork is public, so
+        # the checkout is an anonymous clone.
+        run: git clone --depth 1 --branch simkl-rewatch-build-2 https://github.com/Judzim/NuvioMobile.git .
 
       - name: Set up Java
         uses: actions/setup-java@v5
