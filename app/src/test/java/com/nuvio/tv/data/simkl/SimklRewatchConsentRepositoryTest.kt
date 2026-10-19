@@ -24,10 +24,10 @@ import org.junit.Test
  */
 class SimklRewatchConsentRepositoryTest {
 
-    private val activeProfile = MutableStateFlow(1)
+    private val activeProfileState = MutableStateFlow(1)
     private val repository = SimklRewatchConsentRepository(
         mockk<ProfileManager> {
-            every { activeProfileId } returns activeProfile
+            every { activeProfileId } returns activeProfileState
         }
     )
 
@@ -37,7 +37,7 @@ class SimklRewatchConsentRepositoryTest {
         repository.grant()
         assertTrue(repository.grantedFor(dark(7)))
 
-        activeProfile.value = 2
+        activeProfileState.value = 2
 
         // The yes belonged to the account of profile 1; profile 2 is asked on its own.
         assertFalse(repository.grantedFor(dark(7)))
