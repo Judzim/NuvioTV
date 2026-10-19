@@ -63,7 +63,8 @@ data class TrackingScrobbleEvent(
     val media: TrackingMediaReference,
     val progressPercent: Double,
     /**
-     * Where the content really ends, in percent of its duration, when IntroDB knows the credits.
+     * Where the content ends for the tracker, in percent of its duration, when IntroDB knows the
+     * credits: the marker read a fixed few seconds early, the way the player reads it.
      *
      * A playback that reached the credits is over, even when the user set the completion point higher
      * than that. Null means no marker is known for this item, and the percentage decides on its own.

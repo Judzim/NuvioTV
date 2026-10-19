@@ -58,13 +58,6 @@ internal fun coerceSimklWatchedThresholdPercent(percent: Int): Int = percent.coe
     maximumValue = SIMKL_WATCHED_THRESHOLD_MAX_PERCENT,
 )
 
-/*
- * How early the content end marker is read. Mobile has it as `ContentEndTolerancePercent` in
- * `features/watching/domain/WatchingPolicies.kt`; TV has no such file, so the value is carried over
- * here to keep the rule in one place with the rest of the rewatch policy.
- */
-internal const val SIMKL_CONTENT_END_TOLERANCE_PERCENT = 1.0
-
 /**
  * Where a playback counts as finished, in percent, for everything Simkl is told about it.
  *
@@ -73,10 +66,11 @@ internal const val SIMKL_CONTENT_END_TOLERANCE_PERCENT = 1.0
  * percentage the user set as their own floor. The percentage is the fallback, and it is what decides
  * for the items IntroDB knows nothing about.
  *
- * The marker is read one point early, so a timestamp that is a few seconds off does not leave a finished
- * playback reported as unfinished. Under what Simkl needs to record a watch it cannot be used at all,
- * since a stop reported there is not counted by the account, so the threshold decides instead. That is
- * also why the threshold itself is never read below that bar.
+ * The marker arrives already read a few seconds early, the way the player reads it for the tracker
+ * (`PlayerContentEndPolicy.CONTENT_END_TOLERANCE_SECONDS`), so this rule reads the number it is given.
+ * Under what Simkl needs to record a watch it cannot be used at all, since a stop reported there is not
+ * counted by the account, so the threshold decides instead. That is also why the threshold itself is
+ * never read below that bar.
  */
 internal fun resolvedSimklCompletionPercent(
     userThresholdPercent: Double,
@@ -87,9 +81,8 @@ internal fun resolvedSimklCompletionPercent(
         ?.coerceAtLeast(SIMKL_REWATCH_MIN_PROGRESS_PERCENT)
         ?: SIMKL_REWATCH_MIN_PROGRESS_PERCENT
     val marker = contentEndPercent?.takeIf { value -> value.isFinite() } ?: return userThreshold
-    val markerWithTolerance = marker - SIMKL_CONTENT_END_TOLERANCE_PERCENT
-    if (markerWithTolerance < SIMKL_REWATCH_MIN_PROGRESS_PERCENT) return userThreshold
-    return markerWithTolerance
+    if (marker < SIMKL_REWATCH_MIN_PROGRESS_PERCENT) return userThreshold
+    return marker
 }
 
 /**
