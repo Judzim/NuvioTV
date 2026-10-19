@@ -107,8 +107,16 @@ class SimklSyncEngine internal constructor(
                 )
             }
         }
+        // The guide's rule for this read: every read outside the initial sync pairs date_from, so the
+        // server answers with the changed slice instead of the whole library. That slice mentions only
+        // the items that changed, and the runs need every session the account holds, so it is merged
+        // into the sessions already on the snapshot.
+        val dateFrom = current?.watermark
         return runCatching {
-            val sessions = remote.fetchRewatchSessions().runningRewatchSessions()
+            val sessions = mergeRewatchSessions(
+                read = remote.fetchRewatchSessions(dateFrom = dateFrom),
+                stored = current?.rewatchSessions.orEmpty()
+            )
             SimklRewatchRead(
                 runs = deriveSimklRewatchRuns(
                     entries = sessions,

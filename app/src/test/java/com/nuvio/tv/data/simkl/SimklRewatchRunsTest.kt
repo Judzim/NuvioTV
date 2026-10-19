@@ -245,6 +245,32 @@ class SimklRewatchRunsTest {
         )
     }
 
+    @Test
+    fun `a delta read replaces the sessions of the items it mentions and keeps the rest`() {
+        val other = session(id = 50, status = "active", ids = mapOf("simkl" to JsonPrimitive("39688")))
+        val stored = listOf(session(id = 1, status = "active"), other)
+
+        val merged = mergeRewatchSessions(
+            read = listOf(session(id = 2, status = "active")),
+            stored = stored,
+        )
+
+        assertEquals(listOf(2L, 50L), merged.mapNotNull(SimklLibraryEntry::rewatchId))
+    }
+
+    @Test
+    fun `an item the read mentions without a running session loses its stored sessions`() {
+        val other = session(id = 50, status = "active", ids = mapOf("simkl" to JsonPrimitive("39688")))
+        val stored = listOf(session(id = 1, status = "active"), other)
+
+        val merged = mergeRewatchSessions(
+            read = listOf(rewatchRow(listOf(Marked(season = 2, episode = 7)), isRewatch = false)),
+            stored = stored,
+        )
+
+        assertEquals(listOf(50L), merged.mapNotNull(SimklLibraryEntry::rewatchId))
+    }
+
     private fun runsFor(
         offerRuns: Boolean,
         rewatched: List<Marked>,
