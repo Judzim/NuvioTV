@@ -277,8 +277,9 @@ class SimklTrackingScrobblerTest {
         settingsDataStore.setSimklWatchedThresholdPercent(95)
         accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 90.0))
 
-        // The marker says the content ends at 91 percent, which with a tolerance of one percent is
-        // 90, so a playback at 90 percent is finished even with a threshold of 95: the stop is sent.
+        // The marker says the content ends at 91 percent, already read a few seconds early by the
+        // player (`PlayerContentEndPolicy.CONTENT_END_TOLERANCE_SECONDS`), so this layer takes the
+        // number it is given: a playback at 90 percent is finished even with a threshold of 95.
         scrobbler.scrobble(
             TrackingScrobbleAction.STOP,
             event(progressPercent = 90.0, contentEndPercent = 91.0)
@@ -289,7 +290,7 @@ class SimklTrackingScrobblerTest {
                 action = TrackingScrobbleAction.STOP,
                 event = any(),
                 recordRewatch = false,
-                completionThresholdPercent = 90.0
+                completionThresholdPercent = 91.0
             )
         }
     }
@@ -300,11 +301,11 @@ class SimklTrackingScrobblerTest {
         settingsDataStore.setSimklWatchedThresholdPercent(95)
         accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.PAUSE, progress = 90.0))
 
-        // A marker at 80.5 percent is, after the tolerance, under what Simkl counts at all, so it
-        // cannot be used and the user threshold decides: 95 percent, which a stop at 90 is under.
+        // A marker under what Simkl counts at all cannot be used, so the user threshold decides: 95
+        // percent, which a stop at 90 is under. The marker arrives with the player's tolerance on it.
         scrobbler.scrobble(
             TrackingScrobbleAction.STOP,
-            event(progressPercent = 90.0, contentEndPercent = 80.5)
+            event(progressPercent = 90.0, contentEndPercent = 79.5)
         )
 
         coVerify {
@@ -324,9 +325,9 @@ class SimklTrackingScrobblerTest {
         val result = scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 96.0)
         accountAnswers(result)
 
-        // The marker says the content ends at 96.5 percent, so the playback is finished at 95.5
-        // after the tolerance. Simkl takes whole numbers and drops the decimals, so both sides
-        // decide with 95, which is the number the call carries.
+        // The marker says the content ends at 96.5 percent, read a few seconds early by the player.
+        // Simkl takes whole numbers and drops the decimals, so both sides decide with 96, which is
+        // the number the call carries.
         scrobbler.scrobble(
             TrackingScrobbleAction.STOP,
             event(progressPercent = 96.0, contentEndPercent = 96.5)
@@ -337,7 +338,7 @@ class SimklTrackingScrobblerTest {
                 action = TrackingScrobbleAction.STOP,
                 event = any(),
                 recordRewatch = false,
-                completionThresholdPercent = 95.0
+                completionThresholdPercent = 96.0
             )
         }
         coVerify(exactly = 1) { syncRepository.commitScrobble(result) }
