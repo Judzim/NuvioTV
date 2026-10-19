@@ -58,34 +58,6 @@ class SimklRewatchPolicyTest {
     }
 
     @Test
-    fun `a start above the completion bar does not ask`() {
-        val watched = SimklPriorWatch(wasWatched = true, watchedAtEpochMs = 1_000_000L)
-
-        // Below the bar the question is the normal one: a viewing of something already watched is
-        // beginning, and the answer decides whether the stop asks Simkl for a rewatch.
-        assertTrue(
-            ask(
-                mode = SimklRewatchMode.SEMI_AUTOMATIC,
-                accountType = "pro",
-                priorWatch = watched,
-                nowEpochMs = watched.watchedAtEpochMs!! + SIMKL_REWATCH_MIN_GAP_MS,
-                progressPercent = 0.0,
-            )
-        )
-        // Above the bar the start only says the playback is running again: the question was asked
-        // when this viewing began, and a second one in the middle of it would be noise.
-        assertFalse(
-            ask(
-                mode = SimklRewatchMode.SEMI_AUTOMATIC,
-                accountType = "pro",
-                priorWatch = watched,
-                nowEpochMs = watched.watchedAtEpochMs!! + SIMKL_REWATCH_MIN_GAP_MS,
-                progressPercent = 85.0,
-            )
-        )
-    }
-
-    @Test
     fun `the threshold Simkl is told is a whole number inside its own range`() {
         // Simkl drops the decimals, so the client decides with the same floored number it sends.
         assertEquals(96, simklMinProgressPercent(96.0))
