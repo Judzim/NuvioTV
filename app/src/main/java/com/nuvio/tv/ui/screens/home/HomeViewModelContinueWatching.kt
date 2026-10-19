@@ -3235,6 +3235,21 @@ internal fun nextUpDismissKey(
 }
 
 /**
+ * The id forms whose saved dismissal a closed run may clear.
+ *
+ * The dismissal the user just made is stored under the content id the card carries, so clearing it
+ * in the same breath would put the card straight back. The other forms are the stale ones a build
+ * that could not close a session left behind; those are the ones this sweep is for.
+ */
+internal fun nextUpDismissalKeysToClear(
+    matchKeys: Collection<String>,
+    keptKey: String
+): List<String> {
+    val kept = keptKey.trim()
+    return matchKeys.map { key -> key.trim() }.filter { key -> key.isNotEmpty() && key != kept }
+}
+
+/**
  * Ends the run a Continue Watching card stands for, when the card is the run.
  *
  * The account holds the run, so a card of a running rewatch cannot be taken out of the row locally:
@@ -3264,7 +3279,7 @@ internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String) {
     // run's id forms must not keep hiding the series once it is back on its canonical card. Clearing
     // after the close landed, and only here, is the trade: the blanket clearing on every emission
     // also swept away a stale dismissal a build that could not close a session left behind.
-    for (key in run.matchKeys) {
+    for (key in nextUpDismissalKeysToClear(run.matchKeys, contentId)) {
         traktSettingsDataStore.removeDismissedNextUpKeysForContent(key)
     }
 }
