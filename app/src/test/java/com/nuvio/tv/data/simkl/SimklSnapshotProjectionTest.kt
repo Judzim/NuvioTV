@@ -100,7 +100,9 @@ class SimklSnapshotProjectionTest {
         assertTrue(progress.getValue(1 to 1).isCompleted())
         assertEquals(0.25f, progress.getValue(1 to 2).progressPercentage)
         assertTrue(projection.isWatched("tmdb:101", null, 1, 1))
-        assertFalse(projection.isWatched("tt0000001", null, 1, 2))
+        // The episode is in the account's history; the paused 25 percent row is a repeat viewing,
+        // not a reason to read the episode as unwatched.
+        assertTrue(projection.isWatched("tt0000001", null, 1, 2))
         assertEquals("simkl:status:watching", projection.membershipKey("tmdb:101", "series"))
         assertTrue("tmdb:101" in projection.showIdSiblings.getValue("tt0000001"))
     }
