@@ -225,7 +225,7 @@ private fun JsonObject.historyStatuses(): List<SimklHistoryStatus> =
                 status = response.stringValue("status")?.toSimklListStatus(),
                 mediaType = response.stringValue("simkl_type")?.toSimklMediaType(),
                 animeType = response.stringValue("anime_type"),
-                rewatchId = response.longValue("rewatch_id"),
+                rewatchId = response.stringValue("rewatch_id")?.toLongOrNull(),
                 rewatchStatus = response.stringValue("rewatch_status")
             )
         }
