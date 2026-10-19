@@ -45,6 +45,15 @@ data class TrackingHistoryItem(
      * and it is then never sent.
      */
     val rewatchId: Long? = null
+
+    /**
+     * Whether this write records a repeat viewing rather than a first watch.
+     *
+     * Simkl records a plain add of something the account has already watched as nothing at all, so a
+     * mark that is a repeat has to say so for the account to book it: the write then joins the run of
+     * the item, or opens one. Providers without the concept leave it unset and nothing is sent.
+     */
+    val isRewatch: Boolean = false
 ) {
     /**
      * Whether this mark describes a whole series rather than something that was watched.
@@ -98,7 +107,12 @@ data class TrackingMutationResult(
 data class TrackingMutationResolution(
     val listStatus: TrackingListStatus? = null,
     val mediaKind: TrackingMediaKind? = null,
-    val providerSubtype: String? = null
+    val providerSubtype: String? = null,
+    /**
+     * How a provider that keeps rewatches as sessions booked the view: the answer it gave back for the
+     * item, and null for a provider without the concept and for a plain first watch.
+     */
+    val rewatchStatus: String? = null
 )
 
 interface TrackingListWriter {

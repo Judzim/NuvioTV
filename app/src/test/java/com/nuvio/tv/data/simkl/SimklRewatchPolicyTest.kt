@@ -359,4 +359,29 @@ class SimklRewatchPolicyTest {
         hasRunningSession = hasRunningSession,
         progressPercent = progressPercent,
     )
+    @Test
+    fun `a manual mark is written as a rewatch only where the account can take one`() {
+        // The mode and the plan are the gates the scrobble path uses.
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.OFF, "pro", isRepeatViewing = true))
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, "free", isRepeatViewing = true))
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, null, isRepeatViewing = true))
+
+        // A title the account watched before, on a plan that takes rewatches.
+        assertTrue(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, "pro", isRepeatViewing = true))
+        assertTrue(shouldRecordSimklRewatchOnMark(SimklRewatchMode.SEMI_AUTOMATIC, "vip", isRepeatViewing = true))
+
+        // A first watch stays a plain add: there is nothing to repeat.
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, "pro", isRepeatViewing = false))
+
+        // A run the account already holds takes the mark whatever the title's own state says.
+        assertTrue(
+            shouldRecordSimklRewatchOnMark(
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
+                accountType = "pro",
+                isRepeatViewing = false,
+                hasRunningSession = true
+            )
+        )
+    }
+
 }

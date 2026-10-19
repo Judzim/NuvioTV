@@ -55,6 +55,14 @@ class SimklMutationService internal constructor(
     suspend fun removeFromList(items: Collection<TrackingMediaReference>): TrackingMutationResult =
         removeFromHistory(items)
 
+    /**
+     * Writes marks to the history.
+     *
+     * The request asks for rewatch recording when any item says it is a repeat viewing
+     * ([TrackingHistoryItem.isRewatch]): that is the query flag, Simkl reads the whole request through
+     * its rewatch logic with it, and without it a mark of something already watched is answered as a
+     * plain add and recorded as nothing at all.
+     */
     suspend fun addToHistory(
         items: Collection<TrackingHistoryItem>,
         allowRewatch: Boolean = false
@@ -65,13 +73,17 @@ class SimklMutationService internal constructor(
             }
         }
         if (candidates.isEmpty()) return TrackingMutationResult(attemptedCount = 0)
+        val recordRewatch = allowRewatch || candidates.any(TrackingHistoryItem::isRewatch)
         val response = client.execute(
             SimklApiRequest(
                 method = SimklHttpMethod.POST,
                 path = "/sync/history",
-                query = if (allowRewatch) SIMKL_ALLOW_REWATCH_QUERY else emptyMap(),
+                query = if (recordRewatch) SIMKL_ALLOW_REWATCH_QUERY else emptyMap(),
                 body = buildSimklHistoryMutationBody(
                     candidates,
+                    // The per-item flag is what the writer sets; the request-level one is for a caller
+                    // that marks a whole batch, and it is never needed to record a repeat alongside a
+                    // first watch.
                     isRewatch = allowRewatch,
                     json = json
                 ),
@@ -79,7 +91,7 @@ class SimklMutationService internal constructor(
                 // A repeat viewing of an episode the history already holds is answered with the same
                 // conflict a stop scrobble gets, and behind both is a session that was opened. Reading
                 // it as a failure is what made a recorded rewatch report an error.
-                scrobbleStopConflictIsSuccess = allowRewatch
+                scrobbleStopConflictIsSuccess = recordRewatch
             )
         )
         val receipt = response.toHistoryMutationReceipt(candidates, json)

@@ -350,4 +350,29 @@ class SimklMutationServiceTest {
         val configuration = SimklApiConfiguration("client-id", "nuvio", "1.0")
         fun response(status: Int, body: String = "{}") = SimklRawHttpResponse(status, body)
     }
+    @Test
+    fun `a mark of a repeat asks for a rewatch and the answer says how it was booked`() = runBlocking {
+        val engine = RecordingEngine(
+            response(
+                201,
+                """{"added":{"statuses":[{"response":{"status":"completed","rewatch_id":21284,"rewatch_status":"active"}}]},"not_found":{"movies":[],"shows":[],"episodes":[]}}"""
+            )
+        )
+        val result = SimklMutationService(client(engine)).addToHistory(
+            listOf(
+                TrackingHistoryItem(show(TrackingEpisode(season = 2, number = 7)), 1_700_000_000_000L)
+                    .copy(isRewatch = true, rewatchId = 21284L)
+            )
+        )
+
+        // Without the query flag Simkl reads the very same write as a plain add and records it as
+        // nothing, which is what left a marked episode unrecorded and the run untouched.
+        assertTrue("allow_rewatch=yes" in engine.urls.single())
+        assertTrue("\"is_rewatch\":true" in engine.bodies.single())
+        assertTrue("\"rewatch_id\":21284" in engine.bodies.single())
+        // And the answer says how the account booked it, which is what the caller reports to the user.
+        assertEquals("active", result.resolutions.single().rewatchStatus)
+    }
+
+
 }

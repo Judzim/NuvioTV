@@ -122,7 +122,7 @@ private fun buildHistoryRequest(
             item.media.toHistoryItemDto(
                 watchedAtEpochMs = item.watchedAtEpochMs.takeIf { includeWatchedAt },
                 includeWatchedAt = includeWatchedAt,
-                isRewatch = isRewatch,
+                isRewatch = item.isRewatch || isRewatch,
                 rewatchId = item.rewatchId
             )
         }
@@ -136,13 +136,16 @@ private fun buildHistoryRequest(
 private fun buildShowHistoryItem(
     items: List<TrackingHistoryItem>,
     includeWatchedAt: Boolean,
-    isRewatch: Boolean
+    requestRewatch: Boolean
 ): SimklHistoryItemDto {
     val first = items.first()
     val parentMutation = items.lastOrNull { item -> item.media.episode == null }
     // The session the write belongs to is carried by the item, not by the episode: Simkl documents it
-    // as a field of the movie or show entry.
-    val rewatchId = (parentMutation ?: first).rewatchId
+    // as a field of the movie or show entry, and so is the flag. An item that is a repeat viewing marks
+    // itself, and a caller that marks the whole request marks every item of it.
+    val mutation = parentMutation ?: first
+    val rewatchId = mutation.rewatchId
+    val isRewatch = mutation.isRewatch || requestRewatch
     if (parentMutation != null) {
         return parentMutation.media.toHistoryItemDto(
             watchedAtEpochMs = parentMutation.watchedAtEpochMs.takeIf { includeWatchedAt },
