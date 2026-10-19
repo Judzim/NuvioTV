@@ -1973,13 +1973,30 @@ class MetaDetailsViewModel @Inject constructor(
                 showUnairedNextUp = layoutPreferenceDataStore.showUnairedNextUp.first(),
             )
             if (runEpisode != null) {
+                // Starting the run's next episode does not throw away the position the user already
+                // reached in it: the player resumes from there, and the button says so.
+                val runProgress = runEpisode.season?.let { season ->
+                    runEpisode.episode?.let { episode -> progressMap[season to episode] }
+                }?.takeIf { progress -> shouldResumeProgress(progress) }
                 return NextToWatch(
-                    watchProgress = null,
-                    isResume = false,
+                    watchProgress = runProgress,
+                    isResume = runProgress != null,
                     nextVideoId = runEpisode.id,
                     nextSeason = runEpisode.season,
                     nextEpisode = runEpisode.episode,
-                    displayText = localizedContext.getString(R.string.detail_btn_next_episode, runEpisode.season, runEpisode.episode)
+                    displayText = if (runProgress != null) {
+                        localizedContext.getString(
+                            R.string.detail_btn_resume_episode,
+                            runEpisode.season,
+                            runEpisode.episode
+                        )
+                    } else {
+                        localizedContext.getString(
+                            R.string.detail_btn_next_episode,
+                            runEpisode.season,
+                            runEpisode.episode
+                        )
+                    }
                 )
             }
         }
