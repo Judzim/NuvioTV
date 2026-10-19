@@ -40,6 +40,28 @@ class TraktTrackingScrobblerTest {
     }
 
     @Test
+    fun `one playback is recorded once when it completes after an interruption`() = runTest {
+        val service = mockk<TraktScrobbleService>(relaxed = true)
+        val scrobbler = scrobbler(service)
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 85.0, playbackId = 42L))
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 100.0, playbackId = 42L))
+
+        coVerify(exactly = 1) { service.scrobbleStop(any(), any()) }
+    }
+
+    @Test
+    fun `a later playback of the same item is recorded again`() = runTest {
+        val service = mockk<TraktScrobbleService>(relaxed = true)
+        val scrobbler = scrobbler(service)
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 85.0, playbackId = 42L))
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 100.0, playbackId = 43L))
+
+        coVerify(exactly = 2) { service.scrobbleStop(any(), any()) }
+    }
+
+    @Test
     fun `a start above the completion bar never reaches Trakt`() = runTest {
         val service = mockk<TraktScrobbleService>(relaxed = true)
         val scrobbler = scrobbler(service)
@@ -84,11 +106,12 @@ class TraktTrackingScrobblerTest {
             episodeMappingService = mockk(relaxed = true)
         )
 
-    private fun event(progressPercent: Double) = TrackingScrobbleEvent(
+    private fun event(progressPercent: Double, playbackId: Long = 0L) = TrackingScrobbleEvent(
         media = TrackingMediaReference(
             kind = TrackingMediaKind.MOVIE,
             ids = TrackingExternalIds(imdb = "tt0111161")
         ),
-        progressPercent = progressPercent
+        progressPercent = progressPercent,
+        playbackId = playbackId
     )
 }

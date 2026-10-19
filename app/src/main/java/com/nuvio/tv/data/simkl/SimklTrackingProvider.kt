@@ -100,7 +100,8 @@ class SimklTrackingScrobbler @Inject constructor(
             progressPercent = enrichedEvent.progressPercent,
             completionThresholdPercent = completionThresholdPercent,
             hasRunningSession = runningSessionId != null,
-            consented = rewatchConsentRepository.grantedFor(enrichedEvent.media)
+            consented = rewatchConsentRepository.grantedFor(enrichedEvent.media),
+            hasPlaybackSession = enrichedEvent.hasPlaybackSession
         )
         val result = mutationService.scrobble(
             action = action,

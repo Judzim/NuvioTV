@@ -164,9 +164,12 @@ internal fun simklScrobbleQuery(
 /**
  * Whether the scrobble call itself should carry `allow_rewatch=yes`.
  *
- * [AUTOMATIC] asks for a rewatch on every finished playback. [SEMI_AUTOMATIC] does it only where
- * the user said so: a run of the item is open on the account, or the question before the playback
- * was answered with yes. A semi-automatic write is therefore never the client guessing at a run.
+ * [AUTOMATIC] asks for a rewatch on every finished playback, as long as the playback had a session
+ * the client reported from its start: a playback that began above the completion bar is the finish
+ * of a viewing the account already has, not a viewing that can be repeated. [SEMI_AUTOMATIC] does it
+ * only where the user said so: a run of the item is open on the account, or the question before the
+ * playback was answered with yes. A semi-automatic write is therefore never the client guessing at a
+ * run.
  */
 internal fun shouldRecordSimklRewatchOnStop(
     mode: SimklRewatchMode,
@@ -176,10 +179,12 @@ internal fun shouldRecordSimklRewatchOnStop(
     completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
     hasRunningSession: Boolean = false,
     consented: Boolean = false,
+    hasPlaybackSession: Boolean = true,
 ): Boolean = when {
     mode == SimklRewatchMode.OFF -> false
     !isSimklRewatchPlanEligible(accountType) -> false
     action != TrackingScrobbleAction.STOP -> false
+    !hasPlaybackSession -> false
     progressPercent < completionThresholdPercent -> false
     mode == SimklRewatchMode.AUTOMATIC -> true
     else -> hasRunningSession || consented

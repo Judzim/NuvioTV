@@ -690,6 +690,12 @@ class PlayerRuntimeController(
     internal var traktMappingJob: Job? = null
     internal var hasSentCompletionScrobbleForCurrentItem: Boolean = false
 
+    /** A start was sent below the bar for this item, so the account owns its playback. */
+    internal var hasOpenedScrobbleSessionForCurrentItem: Boolean = false
+
+    /** Identifies this run of the player, so trackers collapse a completion they already wrote. */
+    internal var scrobblePlaybackId: Long = 0L
+
     internal var requestedUseLibassByUser: Boolean = false
     internal var libassPipelineOverrideForCurrentStream: Boolean? = null
     internal var activePlayerUsesLibass: Boolean = false
