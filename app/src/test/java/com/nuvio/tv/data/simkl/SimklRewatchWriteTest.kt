@@ -352,4 +352,26 @@ class SimklRewatchWriteTest {
         val configuration = SimklApiConfiguration("client-id", "nuvio", "1.0")
         fun response(status: Int, body: String = "{}") = SimklRawHttpResponse(status, body)
     }
+    @Test
+    fun `a mark of a repeat viewing carries the flag and the run it joins`() {
+        val body = buildSimklHistoryMutationBody(
+            listOf(
+                TrackingHistoryItem(show(episode = TrackingEpisode(season = 2, number = 7)), WATCHED_AT)
+                    .copy(isRewatch = true, rewatchId = 21284L),
+                TrackingHistoryItem(movie(), WATCHED_AT)
+            )
+        ).asObject()
+
+        val showItem = body.getValue("shows").jsonArray.single().jsonObject
+        // The mark says it is a repeat and names the run it belongs to, so the account books it into
+        // that run instead of opening another one.
+        assertTrue(showItem.getValue("is_rewatch").jsonPrimitive.content.toBoolean())
+        assertEquals(21284, showItem.getValue("rewatch_id").jsonPrimitive.content.toInt())
+
+        // The first watch in the same request stays a plain add: there is nothing for it to repeat.
+        val movieItem = body.getValue("movies").jsonArray.single().jsonObject
+        assertNull(movieItem["is_rewatch"])
+        assertNull(movieItem["rewatch_id"])
+    }
+
 }
