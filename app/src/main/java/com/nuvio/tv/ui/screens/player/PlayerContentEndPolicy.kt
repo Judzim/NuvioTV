@@ -34,7 +34,31 @@ internal fun List<SkipInterval>.contentEndPercent(durationMs: Long): Double? {
 }
 
 /**
- * The same marker for the playback that is on screen right now.
+ * How early the content end marker is read for the tracker, in seconds.
+ *
+ * The marker comes from submissions, so a different release can shift the credits by a few seconds and
+ * a playback that stopped just short of it is treated as finished rather than as an unfinished watch.
+ * The margin is a fixed number of seconds and not a share of the runtime: one percent of the runtime
+ * read a 20 minute episode 13 seconds early and a two hour film over a minute early, which is the
+ * credits pointed at too soon on the long ones.
+ */
+internal const val CONTENT_END_TOLERANCE_SECONDS = 5.0
+
+/**
+ * The marker read [CONTENT_END_TOLERANCE_SECONDS] early, as a percentage of the same duration.
+ *
+ * A margin that reaches past the start of the video is read as the start, and what cannot be a
+ * completion point from there is refused by the caller and its own bar, not here.
+ */
+internal fun Double?.contentEndWithTolerance(durationMs: Long): Double? {
+    if (this == null) return null
+    if (durationMs <= 0L) return null
+    val tolerancePercent = CONTENT_END_TOLERANCE_SECONDS * 1_000.0 / durationMs.toDouble() * 100.0
+    return (this - tolerancePercent).coerceAtLeast(0.0)
+}
+
+/**
+ * The same marker for the playback that is on screen right now, read with its tolerance.
  *
  * The duration comes from the player and, when that is no longer available, from the last known
  * duration, the same as `currentPlaybackProgressPercent` does. A stop is also sent when leaving the
@@ -42,5 +66,5 @@ internal fun List<SkipInterval>.contentEndPercent(durationMs: Long): Double? {
  */
 internal fun PlayerRuntimeController.currentContentEndPercent(): Double? {
     val durationMs = currentPlaybackDurationMs().takeIf { it > 0L } ?: lastKnownDuration
-    return skipIntervals.contentEndPercent(durationMs)
+    return skipIntervals.contentEndPercent(durationMs).contentEndWithTolerance(durationMs)
 }

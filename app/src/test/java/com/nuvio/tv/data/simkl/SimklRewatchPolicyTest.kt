@@ -147,7 +147,7 @@ class SimklRewatchPolicyTest {
         // playback is not over and no rewatch is written for it.
         val completion = resolvedSimklCompletionPercent(userThresholdPercent = 80.0, contentEndPercent = 93.0)
 
-        assertEquals(92.0, completion, 0.0001)
+        assertEquals(93.0, completion, 0.0001)
         assertFalse(
             record(
                 mode = SimklRewatchMode.AUTOMATIC,
@@ -156,7 +156,7 @@ class SimklRewatchPolicyTest {
                 completionThresholdPercent = completion,
             ),
         )
-        assertTrue(
+        assertFalse(
             record(
                 mode = SimklRewatchMode.AUTOMATIC,
                 accountType = "pro",
@@ -164,19 +164,27 @@ class SimklRewatchPolicyTest {
                 completionThresholdPercent = completion,
             ),
         )
+        assertTrue(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                progressPercent = 93.0,
+                completionThresholdPercent = completion,
+            ),
+        )
     }
 
     @Test
-    fun `the credits marker wins and is read one point early`() {
-        // Marker above the user bar: the marker decides.
+    fun `the credits marker wins`() {
+        // Marker above the user bar: the marker decides, read with the tolerance the player applied.
         assertEquals(
-            92.0,
+            93.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 80.0, contentEndPercent = 93.0),
             0.0001,
         )
         // Marker below the user bar but above what Simkl needs: the marker still decides.
         assertEquals(
-            84.0,
+            85.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 92.0, contentEndPercent = 85.0),
             0.0001,
         )
@@ -189,22 +197,22 @@ class SimklRewatchPolicyTest {
     }
 
     @Test
-    fun `a marker that does not survive the tolerance above the Simkl bar is dropped`() {
-        // 80.5 minus the tolerance is 79.5, under what Simkl needs to count a watch, so the user bar
-        // decides instead of a marker that would never be able to record anything.
+    fun `a marker under the Simkl bar is dropped`() {
+        // A marker the account would not count a stop against, because Simkl records a watch only from
+        // its own bar up: the user bar decides instead of a marker that could never record anything.
         assertEquals(
             85.0,
-            resolvedSimklCompletionPercent(userThresholdPercent = 85.0, contentEndPercent = 80.5),
+            resolvedSimklCompletionPercent(userThresholdPercent = 85.0, contentEndPercent = 79.5),
             0.0001,
         )
+        // On the bar it is usable.
         assertEquals(
-            85.0,
+            80.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 85.0, contentEndPercent = 80.0),
             0.0001,
         )
-        // Exactly on the bar after the tolerance is still usable.
         assertEquals(
-            80.0,
+            81.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 95.0, contentEndPercent = 81.0),
             0.0001,
         )
@@ -225,8 +233,8 @@ class SimklRewatchPolicyTest {
         assertEquals(80.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 79.0), 0.0001)
         // Only the threshold is replaced. The credits marker is where the content really ends, so a
         // marker that survives the tolerance decides whatever the threshold was.
-        assertEquals(92.0, resolvedSimklCompletionPercent(Double.POSITIVE_INFINITY, 93.0), 0.0001)
-        assertEquals(92.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 93.0), 0.0001)
+        assertEquals(93.0, resolvedSimklCompletionPercent(Double.POSITIVE_INFINITY, 93.0), 0.0001)
+        assertEquals(93.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 93.0), 0.0001)
         // A marker that cannot be read is dropped and the user bar decides instead.
         assertEquals(90.0, resolvedSimklCompletionPercent(90.0, Double.NaN), 0.0001)
         assertEquals(90.0, resolvedSimklCompletionPercent(90.0, Double.POSITIVE_INFINITY), 0.0001)
