@@ -29,8 +29,12 @@ interface SimklSyncRemote {
      * The account's rewatch sessions, for every type a run can come from. This is a separate read
      * on purpose: a session comes back as a sidecar row with the same show as the canonical row, so
      * feeding it into [fetchAllItems] would let rewatch progress replace the canonical watch position.
+     *
+     * [dateFrom] is the sync watermark the read is paired with outside the initial sync: the guide
+     * asks every read of this endpoint for one, and the answer then carries the rows of the items
+     * that changed since it, which the caller merges into the sessions it already holds.
      */
-    suspend fun fetchRewatchSessions(): List<SimklLibraryEntry>
+    suspend fun fetchRewatchSessions(dateFrom: String?): List<SimklLibraryEntry>
 }
 
 class SimklApiSyncRemote @Inject constructor(
@@ -71,19 +75,26 @@ class SimklApiSyncRemote @Inject constructor(
         SimklApiRequest(SimklHttpMethod.GET, "/sync/playback")
     ).body.decode()
 
-    override suspend fun fetchRewatchSessions(): List<SimklLibraryEntry> =
-        REWATCH_SESSION_TYPES.flatMap { type -> fetchRewatchSessions(type) }
+    override suspend fun fetchRewatchSessions(dateFrom: String?): List<SimklLibraryEntry> =
+        REWATCH_SESSION_TYPES.flatMap { type -> fetchRewatchSessions(type, dateFrom) }
 
-    private suspend fun fetchRewatchSessions(type: SimklMediaType): List<SimklLibraryEntry> = client.execute(
+    private suspend fun fetchRewatchSessions(
+        type: SimklMediaType,
+        dateFrom: String?
+    ): List<SimklLibraryEntry> = client.execute(
         SimklApiRequest(
             SimklHttpMethod.GET,
             "/sync/all-items/${type.apiValue}",
-            mapOf(
-                "extended" to "full",
-                "allow_rewatch" to "yes",
-                "episode_watched_at" to "yes",
-                "language" to "en"
-            )
+            buildMap {
+                put("extended", "full")
+                put("allow_rewatch", "yes")
+                put("episode_watched_at", "yes")
+                put("language", "en")
+                // The guide's rule for this read: always pair it with date_from outside the initial
+                // sync. The delta carries the session rows of the changed items only, so every caller
+                // outside the initial sync hands one in and merges the result.
+                dateFrom?.let { value -> put("date_from", value) }
+            }
         )
     ).body.decodeAllItems().entriesFor(type)
 

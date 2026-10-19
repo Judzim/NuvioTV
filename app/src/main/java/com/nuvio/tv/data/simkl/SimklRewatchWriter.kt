@@ -61,11 +61,16 @@ class SimklRewatchWriter @Inject constructor(
      */
     private fun refreshRewatchSessions(settled: (List<SimklLibraryEntry>) -> Boolean) {
         scope.launch {
+            // The read is paired with the sync watermark, so it carries the items changed since the
+            // last sync, the write this waits for among them once Simkl publishes it. Every pass of
+            // the loop reads the same window on purpose: a narrower one would skip a change that was
+            // published between two reads.
+            val dateFrom = syncRepository.state.value.snapshot.watermark
             var lastRead: List<SimklLibraryEntry>? = null
             var settledSeen = false
             for (waitMs in SIMKL_REWATCH_SESSION_READ_DELAYS_MS) {
                 delay(waitMs)
-                val sessions = runCatching { remote.fetchRewatchSessions() }
+                val sessions = runCatching { remote.fetchRewatchSessions(dateFrom) }
                     .onFailure { error ->
                         Log.w(TAG, "Could not read the rewatch sessions back: ${error.message}")
                     }

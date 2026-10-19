@@ -116,7 +116,7 @@ class SimklRewatchWriterTest {
 
         override suspend fun fetchPlayback(): List<SimklPlaybackSession> = emptyList()
 
-        override suspend fun fetchRewatchSessions(): List<SimklLibraryEntry> {
+        override suspend fun fetchRewatchSessions(dateFrom: String?): List<SimklLibraryEntry> {
             reads.incrementAndGet()
             return sessions
         }

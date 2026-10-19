@@ -140,6 +140,25 @@ internal fun List<SimklLibraryEntry>.runningRewatchSessions(): List<SimklLibrary
     filter { entry -> entry.isRewatch && entry.isRunningRewatchSession() }
 
 /**
+ * Merges a rewatch-session read into the sessions the snapshot already holds.
+ *
+ * Outside the initial sync the read is paired with the sync watermark, so it carries the rows of the
+ * items that changed since it, and nothing at all for the items that did not. The rows of a changed
+ * item replace what was stored for that item: a session the account closed elsewhere leaves the
+ * stored set here, a new one joins it. Items the read did not mention keep their stored sessions.
+ * Only running sessions are kept, the same filter a full read goes through.
+ */
+internal fun mergeRewatchSessions(
+    read: List<SimklLibraryEntry>,
+    stored: List<SimklLibraryEntry>
+): List<SimklLibraryEntry> {
+    val changedKeys = read.mapNotNull(SimklLibraryEntry::stableKey).toSet()
+    val kept = stored.filterNot { entry -> entry.stableKey() in changedKeys }
+    return (kept + read.runningRewatchSessions())
+        .sortedWith(compareBy({ entry -> entry.stableKey().orEmpty() }, { entry -> entry.rewatchId ?: 0L }))
+}
+
+/**
  * The episodes the running session of the item holds: what a rewatch in progress has covered so far.
  *
  * The detail screen draws the same marker on every episode the account watched, so a run needs its

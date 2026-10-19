@@ -172,14 +172,23 @@ class SimklSyncRepository @Inject constructor(
      * Stores the runs the account's rewatch sessions make, so a rewatch the user just confirmed shows
      * up in Continue Watching at once instead of after the next sync. The sessions come from the
      * caller, which read them to answer whether the write landed; only the running rewatch sessions
-     * are kept, never the canonical rows read beside them.
+     * are kept, never the canonical rows read beside them. A read paired with the watermark carries the
+     * changed items only, so it is merged into the sessions already stored and the items it does not
+     * mention keep theirs.
      */
     internal suspend fun adoptRewatchSessions(sessions: List<SimklLibraryEntry>) =
         withContext(Dispatchers.IO) {
-            val runningSessions = sessions.runningRewatchSessions()
+            // What the caller read is a delta outside the initial sync (it was paired with the sync
+            // watermark): it carries the changed items only, so merging it keeps the sessions of the
+            // items it did not mention. A full read merges the same way: it mentions every item, which
+            // makes the read the whole set again.
+            val merged = mergeRewatchSessions(
+                read = sessions,
+                stored = _state.value.snapshot.rewatchSessions
+            )
             val runs = runCatching {
                 deriveSimklRewatchRuns(
-                    entries = runningSessions,
+                    entries = merged,
                     offerRuns = offersSimklRewatchRuns()
                 )
             }.getOrElse { error ->
@@ -194,13 +203,13 @@ class SimklSyncRepository @Inject constructor(
                 val current = _state.value
                 if (
                     current.snapshot.rewatchRuns == runs &&
-                    current.snapshot.rewatchSessions == runningSessions
+                    current.snapshot.rewatchSessions == merged
                 ) {
                     return@withLock
                 }
                 val snapshot = current.snapshot.copy(
                     rewatchRuns = runs,
-                    rewatchSessions = runningSessions
+                    rewatchSessions = merged
                 )
                 val projection = buildProjection(snapshot)
                 storage.save(profileId, encodeSnapshot(snapshot))

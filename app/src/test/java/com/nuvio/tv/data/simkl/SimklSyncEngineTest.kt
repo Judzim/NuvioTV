@@ -683,7 +683,7 @@ class SimklSyncEngineTest {
         )
         val remote = SimklApiSyncRemote(client)
 
-        remote.fetchRewatchSessions()
+        remote.fetchRewatchSessions(dateFrom = "v1")
         remote.fetchAllItems(SimklAllItemsRequest.Bootstrap(SimklMediaType.SHOWS))
 
         // A session can belong to shows or anime, and each of those reads carries the flag.
@@ -694,6 +694,8 @@ class SimklSyncEngineTest {
             assertTrue("extended=full" in urls[index])
             assertTrue("episode_watched_at=yes" in urls[index])
             assertTrue("language=en" in urls[index])
+            // Outside the initial sync the read is paired with the sync watermark, as the guide asks.
+            assertTrue("date_from=v1" in urls[index])
         }
         // The canonical read must never ask for rewatches: a sidecar row carries the same show, so it
         // would be merged over the real watch position.
@@ -713,7 +715,7 @@ class SimklSyncEngineTest {
             retryJitterMs = { 0L }
         )
 
-        val sessions = SimklApiSyncRemote(client).fetchRewatchSessions()
+        val sessions = SimklApiSyncRemote(client).fetchRewatchSessions(dateFrom = null)
 
         val session = sessions.single()
         assertEquals(SimklMediaType.SHOWS, session.mediaType)
@@ -822,7 +824,7 @@ class SimklSyncEngineTest {
          * rewatches leaves its step out and the account answers with no sessions. A scripted failure
          * is still handed over, which is what the fallback of the engine is asserted with.
          */
-        override suspend fun fetchRewatchSessions(): List<SimklLibraryEntry> {
+        override suspend fun fetchRewatchSessions(dateFrom: String?): List<SimklLibraryEntry> {
             rewatchSessionReads += 1
             return when (val step = remaining.firstOrNull()) {
                 is Step.RewatchSessions -> {
