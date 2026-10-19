@@ -44,7 +44,7 @@ data class TrackingHistoryItem(
      * session, so a run is continued rather than forked. Providers without the concept leave it unset
      * and it is then never sent.
      */
-    val rewatchId: Long? = null
+    val rewatchId: Long? = null,
 
     /**
      * Whether this write records a repeat viewing rather than a first watch.
