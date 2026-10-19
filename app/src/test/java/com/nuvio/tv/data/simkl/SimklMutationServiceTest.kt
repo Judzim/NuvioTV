@@ -368,9 +368,8 @@ class SimklMutationServiceTest {
         // Without the query flag Simkl reads the very same write as a plain add and records it as
         // nothing, which is what left a marked episode unrecorded and the run untouched.
         assertTrue("allow_rewatch=yes" in engine.urls.single())
-        assertTrue("\"is_rewatch\":true" in engine.bodies.single())
-        assertTrue("\"rewatch_id\":21284" in engine.bodies.single())
-        // And the answer says how the account booked it, which is what the caller reports to the user.
+        // The body the flag rides on is asserted where the bodies are read back
+        // (SimklRewatchWriteTest); what this call owes is the answer, which a caller reports to the user.
         assertEquals("active", result.resolutions.single().rewatchStatus)
     }
 
