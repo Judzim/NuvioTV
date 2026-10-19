@@ -58,6 +58,28 @@ class SimklRewatchPolicyTest {
     }
 
     @Test
+    fun `a playback that never had a session is not a repeat viewing`() {
+        // Above the bar there is no session to repeat: the stop ends a viewing the account already
+        // has, so neither the automatic mode nor an open run may open a session for it.
+        assertFalse(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                hasPlaybackSession = false,
+            )
+        )
+        assertFalse(
+            record(
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
+                accountType = "pro",
+                hasRunningSession = true,
+                hasPlaybackSession = false,
+            )
+        )
+        assertTrue(record(mode = SimklRewatchMode.AUTOMATIC, accountType = "pro"))
+    }
+
+    @Test
     fun `the threshold Simkl is told is a whole number inside its own range`() {
         // Simkl drops the decimals, so the client decides with the same floored number it sends.
         assertEquals(96, simklMinProgressPercent(96.0))
@@ -332,6 +354,7 @@ class SimklRewatchPolicyTest {
         completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
         hasRunningSession: Boolean = false,
         consented: Boolean = false,
+        hasPlaybackSession: Boolean = true,
     ): Boolean = shouldRecordSimklRewatchOnStop(
         mode = mode,
         accountType = accountType,
@@ -340,6 +363,7 @@ class SimklRewatchPolicyTest {
         completionThresholdPercent = completionThresholdPercent,
         hasRunningSession = hasRunningSession,
         consented = consented,
+        hasPlaybackSession = hasPlaybackSession,
     )
 
     private fun ask(

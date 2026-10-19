@@ -234,6 +234,27 @@ class SimklTrackingScrobblerTest {
     }
 
     @Test
+    fun `a stop from a playback that began above the bar does not ask for a rewatch`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.AUTOMATIC)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.SCROBBLE, progress = 93.0))
+
+        scrobbler.scrobble(
+            TrackingScrobbleAction.STOP,
+            event(progressPercent = 93.0, hasPlaybackSession = false)
+        )
+
+        coVerify {
+            mutationService.scrobble(
+                action = TrackingScrobbleAction.STOP,
+                event = any(),
+                recordRewatch = false,
+                completionThresholdPercent = 80.0
+            )
+        }
+    }
+
+    @Test
     fun `the stored threshold decides when the account counts a stop as watched`() = runBlocking {
         connect()
         settingsDataStore.setSimklWatchedThresholdPercent(95)
@@ -492,7 +513,8 @@ class SimklTrackingScrobblerTest {
     private fun event(
         progressPercent: Double,
         contentEndPercent: Double? = null,
-        kind: TrackingMediaKind = TrackingMediaKind.SHOW
+        kind: TrackingMediaKind = TrackingMediaKind.SHOW,
+        hasPlaybackSession: Boolean = true
     ) = TrackingScrobbleEvent(
         media = TrackingMediaReference(
             kind = kind,
@@ -506,7 +528,8 @@ class SimklTrackingScrobblerTest {
             }
         ),
         progressPercent = progressPercent,
-        contentEndPercent = contentEndPercent
+        contentEndPercent = contentEndPercent,
+        hasPlaybackSession = hasPlaybackSession
     )
 
     private fun scrobbleResult(

@@ -20,18 +20,34 @@ class TraktTrackingScrobbler @Inject constructor(
     override val providerId = TrackingProviderId.TRAKT
     override val seekScrobblePolicy = TrackingSeekScrobblePolicy.STOP_AND_RESTART
 
+    /*
+     * Trakt records a play on every stop at or above the bar, and a pause is sent as a stop. One
+     * playback can therefore report a completion more than once when it is interrupted and resumed;
+     * the player's run id lets the second one be dropped without touching a later, separate viewing.
+     */
+    @Volatile
+    private var lastCompletedPlaybackId: Long = 0L
+
     override suspend fun scrobble(
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent
     ) {
         /*
          * A playback that resumes above the completion bar is not a new viewing here. The player
-         * sends the start for the trackers that report a "watching now" state, and this one skips
-         * it: Trakt would otherwise record the same watch twice, once through the start and once
-         * through the stop that ends the playback.
+         * marks that start sessionless, so the coordinator already leaves this scrobbler out; the
+         * guard keeps the rule for a caller that reaches the scrobbler directly, because Trakt would
+         * otherwise record the same watch twice, once through the start and once through the stop.
          */
         if (action == TrackingScrobbleAction.START &&
             event.progressPercent >= TRACKING_COMPLETION_BAR_PERCENT
+        ) {
+            return
+        }
+        val completesPlayback = event.progressPercent >= TRACKING_COMPLETION_BAR_PERCENT &&
+            (action == TrackingScrobbleAction.PAUSE || action == TrackingScrobbleAction.STOP)
+        if (completesPlayback &&
+            event.playbackId != 0L &&
+            event.playbackId == lastCompletedPlaybackId
         ) {
             return
         }
@@ -40,6 +56,9 @@ class TraktTrackingScrobbler @Inject constructor(
             TrackingScrobbleAction.START -> service.scrobbleStart(item, event.progressPercent.toFloat())
             TrackingScrobbleAction.PAUSE -> service.scrobbleStop(item, event.progressPercent.toFloat())
             TrackingScrobbleAction.STOP -> service.scrobbleStop(item, event.progressPercent.toFloat())
+        }
+        if (completesPlayback && event.playbackId != 0L) {
+            lastCompletedPlaybackId = event.playbackId
         }
     }
 

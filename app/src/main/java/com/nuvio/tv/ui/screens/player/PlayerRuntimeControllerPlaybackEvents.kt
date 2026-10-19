@@ -683,7 +683,7 @@ internal fun PlayerRuntimeController.handleNaturalPlaybackEnded() {
         return
     }
 
-    emitCompletionScrobbleStop(progressPercent = 99.5f)
+    emitCompletionScrobbleStop(progressPercent = 100f)
     if (contentType.equals("cloud", ignoreCase = true)) {
         saveCloudLibraryProgress(position, duration, completed = true)
     } else {
@@ -807,6 +807,8 @@ internal fun PlayerRuntimeController.refreshScrobbleItem() {
     hasSentStartAboveCompletionBarForCurrentItem = false
     scrobbleStartRequestGeneration++
     hasSentCompletionScrobbleForCurrentItem = false
+    hasOpenedScrobbleSessionForCurrentItem = false
+    scrobblePlaybackId = System.nanoTime()
     logScrobbleDiagnostic("item_refreshed")
 }
 
@@ -846,8 +848,9 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
     /*
      * A playback that resumes above the completion bar gets its start too, so the trackers that show
      * the user as watching can report it. That start opens nothing here (see
-     * `emitScrobbleStartAboveCompletionBar`), and Trakt skips it on its own side, where a start and
-     * the stop that follows would record the same viewing twice.
+     * `emitScrobbleStartAboveCompletionBar`), as a sessionless report only the trackers that keep a
+     * watching state of their own take. A tracker that records a watch on a stop would otherwise see
+     * the same viewing both start and finish.
      */
     val currentProgress = currentPlaybackProgressPercent()
     if (currentProgress.toDouble() >= TRACKING_COMPLETION_BAR_PERCENT) {
@@ -857,6 +860,10 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
     // Under the bar again (a fresh playback, or one seeked back): the session below owns the item,
     // and a start already sent above the bar does not stand in its way.
     hasSentStartAboveCompletionBarForCurrentItem = false
+    hasOpenedScrobbleSessionForCurrentItem = true
+    // A new stretch of playback starts here. A completion stop sent before it does not stand for
+    // this one, so the stop that ends it may be reported again.
+    hasSentCompletionScrobbleForCurrentItem = false
 
     hasRequestedScrobbleStartForCurrentItem = true
     val requestGeneration = ++scrobbleStartRequestGeneration
@@ -879,7 +886,12 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
         logScrobbleDiagnostic("start_dispatching", "requestGeneration=$requestGeneration progress=$progressPercent")
         val failures = trackingScrobbleCoordinator.scrobble(
             action = TrackingScrobbleAction.START,
-            event = TrackingScrobbleEvent(item, progressPercent.toDouble())
+            event = TrackingScrobbleEvent(
+                item,
+                progressPercent.toDouble(),
+                hasPlaybackSession = true,
+                playbackId = scrobblePlaybackId
+            )
         )
         logScrobbleDiagnostic(
             "start_dispatched",
@@ -900,8 +912,8 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
  * The trackers that keep a "watching now" state of their own want to hear about the playback
  * whatever position it starts from, so the start goes out here instead of being dropped. It opens
  * nothing locally: it never arms the pause and stop policy, which is what keeps every other event
- * exactly as it is for a playback that was already past the bar. The provider that cannot take such
- * a start, Trakt, skips it in its own scrobbler.
+ * exactly as it is for a playback that was already past the bar. It is marked sessionless, so only
+ * the trackers that keep a watching state of their own take it.
  *
  * One start per playback stretch: the pause that ends it clears the mark, so the resume after the
  * pause reports the watching state again, and a seek back under the bar hands the item to the path
@@ -913,6 +925,9 @@ internal fun PlayerRuntimeController.emitScrobbleStartAboveCompletionBar(progres
         return
     }
     hasSentStartAboveCompletionBarForCurrentItem = true
+    // The resume opens a new stretch of the same playback, so its stop may report the finish even
+    // when an idle stop below the bar already latched one.
+    hasSentCompletionScrobbleForCurrentItem = false
     logScrobbleDiagnostic("start_queued", "reason=above_completion progress=$progressPercent")
     scope.launch {
         // The episode mapping decides the season and episode number a start is sent with, the same
@@ -927,7 +942,12 @@ internal fun PlayerRuntimeController.emitScrobbleStartAboveCompletionBar(progres
         }
         val failures = trackingScrobbleCoordinator.scrobble(
             action = TrackingScrobbleAction.START,
-            event = TrackingScrobbleEvent(item, currentPlaybackProgressPercent().toDouble())
+            event = TrackingScrobbleEvent(
+                item,
+                currentPlaybackProgressPercent().toDouble(),
+                sessionless = true,
+                playbackId = scrobblePlaybackId
+            )
         )
         logScrobbleDiagnostic(
             "start_dispatched",
@@ -981,7 +1001,9 @@ internal fun PlayerRuntimeController.emitScrobbleStop(progressPercent: Float? = 
                 item,
                 percent.toDouble(),
                 contentEndPercent = currentContentEndPercent(),
-                sessionless = sessionless
+                sessionless = sessionless,
+                hasPlaybackSession = hasOpenedScrobbleSessionForCurrentItem,
+                playbackId = scrobblePlaybackId
             )
         )
         logScrobbleDiagnostic("stop_dispatched", "progress=$percent failures=${failures.map { it.providerId.storageId }}")
@@ -1032,7 +1054,9 @@ internal fun PlayerRuntimeController.emitScrobblePause(progressPercent: Float? =
                 item,
                 percent.toDouble(),
                 contentEndPercent = currentContentEndPercent(),
-                sessionless = sessionless
+                sessionless = sessionless,
+                hasPlaybackSession = hasOpenedScrobbleSessionForCurrentItem,
+                playbackId = scrobblePlaybackId
             )
         )
         logScrobbleDiagnostic("pause_dispatched", "progress=$percent failures=${failures.map { it.providerId.storageId }}")
@@ -1089,7 +1113,9 @@ internal fun PlayerRuntimeController.emitSeekScrobbleRestart(progressPercent: Fl
             event = TrackingScrobbleEvent(
                 item,
                 progressPercent.toDouble(),
-                contentEndPercent = currentContentEndPercent()
+                contentEndPercent = currentContentEndPercent(),
+                hasPlaybackSession = hasOpenedScrobbleSessionForCurrentItem,
+                playbackId = scrobblePlaybackId
             )
         )
         if (isPlaybackCurrentlyPlaying()) {
@@ -1098,7 +1124,9 @@ internal fun PlayerRuntimeController.emitSeekScrobbleRestart(progressPercent: Fl
                 event = TrackingScrobbleEvent(
                     item,
                     currentPlaybackProgressPercent().toDouble(),
-                    contentEndPercent = currentContentEndPercent()
+                    contentEndPercent = currentContentEndPercent(),
+                    hasPlaybackSession = hasOpenedScrobbleSessionForCurrentItem,
+                    playbackId = scrobblePlaybackId
                 )
             )
         }
