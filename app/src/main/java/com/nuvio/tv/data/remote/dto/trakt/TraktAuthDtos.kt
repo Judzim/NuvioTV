@@ -5,7 +5,9 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class TraktDeviceCodeRequestDto(
-    @Json(name = "client_id") val clientId: String
+    @Json(name = "client_id") val clientId: String,
+    @Json(name = "code_challenge") val codeChallenge: String? = null,
+    @Json(name = "code_challenge_method") val codeChallengeMethod: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -21,15 +23,16 @@ data class TraktDeviceCodeResponseDto(
 data class TraktDeviceTokenRequestDto(
     @Json(name = "code") val code: String,
     @Json(name = "client_id") val clientId: String,
-    @Json(name = "client_secret") val clientSecret: String
+    @Json(name = "client_secret") val clientSecret: String? = null,
+    @Json(name = "code_verifier") val codeVerifier: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class TraktRefreshTokenRequestDto(
     @Json(name = "refresh_token") val refreshToken: String,
     @Json(name = "client_id") val clientId: String,
-    @Json(name = "client_secret") val clientSecret: String,
-    @Json(name = "redirect_uri") val redirectUri: String,
+    @Json(name = "client_secret") val clientSecret: String? = null,
+    @Json(name = "redirect_uri") val redirectUri: String? = null,
     @Json(name = "grant_type") val grantType: String = "refresh_token"
 )
 
@@ -37,7 +40,7 @@ data class TraktRefreshTokenRequestDto(
 data class TraktRevokeRequestDto(
     @Json(name = "token") val token: String,
     @Json(name = "client_id") val clientId: String,
-    @Json(name = "client_secret") val clientSecret: String
+    @Json(name = "client_secret") val clientSecret: String? = null
 )
 
 @JsonClass(generateAdapter = true)
