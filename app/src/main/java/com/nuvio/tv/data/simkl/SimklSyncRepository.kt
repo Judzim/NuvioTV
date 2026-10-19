@@ -171,14 +171,25 @@ class SimklSyncRepository @Inject constructor(
     /**
      * Stores the runs the account's rewatch sessions make, so a rewatch the user just confirmed shows
      * up in Continue Watching at once instead of after the next sync. The sessions come from the
-     * caller, which read them to answer whether the write landed.
+     * caller, which read them to answer whether the write landed; only the running rewatch sessions
+     * are kept, never the canonical rows read beside them. A read paired with the watermark carries the
+     * changed items only, so it is merged into the sessions already stored and the items it does not
+     * mention keep theirs.
      */
     internal suspend fun adoptRewatchSessions(sessions: List<SimklLibraryEntry>) =
         withContext(Dispatchers.IO) {
+            // What the caller read is a delta outside the initial sync (it was paired with the sync
+            // watermark): it carries the changed items only, so merging it keeps the sessions of the
+            // items it did not mention. A full read merges the same way: it mentions every item, which
+            // makes the read the whole set again.
+            val merged = mergeRewatchSessions(
+                read = sessions,
+                stored = _state.value.snapshot.rewatchSessions
+            )
             val runs = runCatching {
                 deriveSimklRewatchRuns(
-                    entries = sessions,
-                    minimumRunEpisodes = minimumRewatchRunEpisodes()
+                    entries = merged,
+                    offerRuns = offersSimklRewatchRuns()
                 )
             }.getOrElse { error ->
                 Log.w(TAG, "Could not read the runs out of the rewatch sessions", error)
@@ -192,11 +203,14 @@ class SimklSyncRepository @Inject constructor(
                 val current = _state.value
                 if (
                     current.snapshot.rewatchRuns == runs &&
-                    current.snapshot.rewatchSessions == sessions
+                    current.snapshot.rewatchSessions == merged
                 ) {
                     return@withLock
                 }
-                val snapshot = current.snapshot.copy(rewatchRuns = runs, rewatchSessions = sessions)
+                val snapshot = current.snapshot.copy(
+                    rewatchRuns = runs,
+                    rewatchSessions = merged
+                )
                 val projection = buildProjection(snapshot)
                 storage.save(profileId, encodeSnapshot(snapshot))
                 if (isCurrent(profileId, generation)) {
@@ -207,7 +221,7 @@ class SimklSyncRepository @Inject constructor(
         }
 
     /**
-     * Re-derives the runs after the user changed how much of a rewatch should be offered.
+     * Re-derives the runs after the user changed how rewatches are recorded.
      *
      * The sessions of the last read are kept on the snapshot, so the row follows the setting at once
      * instead of at the next sync, and it works offline. With nothing read yet there is nothing to
@@ -220,7 +234,7 @@ class SimklSyncRepository @Inject constructor(
         val runs = runCatching {
             deriveSimklRewatchRuns(
                 entries = sessions,
-                minimumRunEpisodes = minimumRewatchRunEpisodes()
+                offerRuns = offersSimklRewatchRuns()
             )
         }.getOrElse { error ->
             Log.w(TAG, "Could not re-derive the runs after a setting change", error)
@@ -326,24 +340,18 @@ class SimklSyncRepository @Inject constructor(
         }
     }
 
-    /*
-     * Difference from mobile: mobile reads `simklRewatchNextUpMode` from `TrackingSettingsRepository`.
-     * TV has no such `object` repository, so the mode is read from `TraktSettingsDataStore`, where the
-     * keys live. The callers are `suspend`, so the read is a single `first()`; the mode maps to the
-     * number of episodes the rewatch chain needs before it is shown at all.
-     */
-    private suspend fun minimumRewatchRunEpisodes(): Int? =
-        settingsDataStore.simklRewatchNextUpMode.first().minimumRunEpisodes
+    /* The mode is read from `TraktSettingsDataStore`; while it is off the runs are dropped. */
+    private suspend fun offersSimklRewatchRuns(): Boolean =
+        settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF
 
     /*
-     * Difference from mobile: mobile reads `simklWatchedThresholdPercent` from `TrackingSettingsRepository`.
-     * TV has no such `object` repository for UI state, so the threshold is read from `TraktSettingsDataStore`,
-     * the same as `simklRewatchNextUpMode`. The projection is `suspend`, so the read is a single `first()`;
-     * when the setting cannot be read, the threshold is not passed in and a playback row keeps the source
-     * default of 80 percent. The threshold decides on the write side (the scrobbler), that is when a
-     * playback is reported as finished. On the Continue Watching read it no longer decides that a playback
-     * is finished: a playback row is a position the provider keeps open, and such a row is never closed by
-     * a percentage, so an episode stopped at 86 percent with a threshold of 95 stays in the row. The
+     * The threshold is read from `TraktSettingsDataStore`, the same as the rewatch mode. The
+     * projection is `suspend`, so the read is a single `first()`; when the setting cannot be read,
+     * the threshold is not passed in and a playback row keeps the source default of 80 percent. The
+     * threshold decides on the write side (the scrobbler), that is when a playback is reported as
+     * finished. On the Continue Watching read it no longer decides that a playback is finished: a
+     * playback row is a position the provider keeps open, and such a row is never closed by a
+     * percentage, so an episode stopped at 86 percent with a threshold of 95 stays in the row. The
      * threshold is still passed to the row, and the row carries it as the number it was reported with.
      */
     private suspend fun completionThresholdFraction(): Float? = try {

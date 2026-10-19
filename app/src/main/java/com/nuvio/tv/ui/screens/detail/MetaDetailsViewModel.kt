@@ -27,6 +27,7 @@ import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
+import com.nuvio.tv.data.simkl.rewatchedEpisodesOf
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaTrailer
@@ -40,6 +41,7 @@ import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
+import com.nuvio.tv.data.mediaserver.ServerItemRef
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.core.util.withAppLocale
 import com.nuvio.tv.core.util.isUnreleased
@@ -109,6 +111,7 @@ class MetaDetailsViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String = savedStateHandle["itemId"] ?: ""
+    private val isServerItem = ServerItemRef.isServerId(itemId)
     private val itemType: String = savedStateHandle["itemType"] ?: ""
     private val preferredAddonBaseUrl: String? = savedStateHandle["addonBaseUrl"]
 
@@ -143,6 +146,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private var trailerDelayMs = 7000L
     private var trailerAutoplayEnabled = false
+    private var trailerPlayInBackground = false
     private var trailerHasPlayed = false
     private var suppressSeasonAutoSwitch = false
 
@@ -197,6 +201,23 @@ class MetaDetailsViewModel @Inject constructor(
                 .map { state -> state.snapshot.rewatchRuns }
                 .distinctUntilChanged()
                 .collectLatest { calculateNextToWatch() }
+        }
+    }
+
+    /**
+     * The episodes the running rewatch of the item has covered, for the marker the episode list draws.
+     *
+     * Only a run's own episodes are collected; without a run the set is empty and the list draws its
+     * marker exactly as it did before rewatches existed.
+     */
+    private fun refreshRewatchEpisodes() {
+        val snapshot = simklSyncRepository.state.value.snapshot
+        val run = rewatchRunFor(_uiState.value.meta?.id) ?: rewatchRunFor(_effectiveContentId.value)
+        val episodes = run
+            ?.let { active -> snapshot.rewatchSessions.rewatchedEpisodesOf(active.contentId) }
+            .orEmpty()
+        _uiState.update { state ->
+            if (state.rewatchEpisodes == episodes) state else state.copy(rewatchEpisodes = episodes)
         }
     }
 
@@ -290,10 +311,12 @@ class MetaDetailsViewModel @Inject constructor(
     private fun setTrailerPlaybackState(
         isPlaying: Boolean,
         showControls: Boolean,
-        hideLogo: Boolean
+        hideLogo: Boolean,
+        isBackgroundPlaying: Boolean = false
     ) {
         _uiState.update { state ->
             if (state.isTrailerPlaying == isPlaying &&
+                state.isBackgroundTrailerPlaying == isBackgroundPlaying &&
                 state.showTrailerControls == showControls &&
                 state.hideLogoDuringTrailer == hideLogo
             ) {
@@ -301,6 +324,7 @@ class MetaDetailsViewModel @Inject constructor(
             } else {
                 state.copy(
                     isTrailerPlaying = isPlaying,
+                    isBackgroundTrailerPlaying = isBackgroundPlaying,
                     showTrailerControls = showControls,
                     hideLogoDuringTrailer = hideLogo
                 )
@@ -344,6 +368,14 @@ class MetaDetailsViewModel @Inject constructor(
             trailerSettingsDataStore.settings.collectLatest { settings ->
                 trailerAutoplayEnabled = settings.enabled
                 trailerDelayMs = settings.delaySeconds * 1000L
+                trailerPlayInBackground = settings.playInBackground
+                _uiState.update { state ->
+                    if (state.pauseBackgroundTrailerOnScroll == settings.pauseOnScroll) {
+                        state
+                    } else {
+                        state.copy(pauseBackgroundTrailerOnScroll = settings.pauseOnScroll)
+                    }
+                }
                 if (!settings.enabled) {
                     idleTimerJob?.cancel()
                 }
@@ -1008,9 +1040,8 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private suspend fun applyMetaWithEnrichment(meta: Meta) {
-        // Fire all independent async jobs immediately — they run in parallel.
-        loadMoreLikeThisAsync(meta)
-        val enriched = enrichMeta(meta)
+        if (!isServerItem) loadMoreLikeThisAsync(meta)
+        val enriched = if (isServerItem) meta else enrichMeta(meta)
 
         syncEffectiveContentId(enriched)
         val cachedNextToWatch = metaDetailsSessionState.getNextToWatch(
@@ -1047,7 +1078,7 @@ class MetaDetailsViewModel @Inject constructor(
         val precomputedNextToWatch = computeNextToWatch(enriched, progressMap, watchedEpisodes)
         updateNextToWatch(precomputedNextToWatch)
 
-        // Episode ratings and MDBList are independent — launch both without waiting.
+        if (isServerItem) return
         loadEpisodeRatingsAsync(enriched)
         viewModelScope.launch { loadMDBListRatings(enriched) }
     }
@@ -1160,7 +1191,7 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun supportsComments(meta: Meta?): Boolean {
-        if (meta == null) return false
+        if (meta == null || isServerItem) return false
         return when (meta.type) {
             ContentType.MOVIE -> true
             ContentType.SERIES, ContentType.TV -> true
@@ -1860,6 +1891,7 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun calculateNextToWatch() {
+        refreshRewatchEpisodes()
         val meta = _uiState.value.meta ?: return
         val progressMap = _uiState.value.episodeProgressMap
         val watchedEpisodes = _uiState.value.watchedEpisodes
@@ -2856,6 +2888,7 @@ class MetaDetailsViewModel @Inject constructor(
     // --- Trailer ---
 
     private fun fetchTrailerUrl() {
+        if (isServerItem) return
         val meta = _uiState.value.meta ?: return
 
         trailerFetchJob?.cancel()
@@ -2930,7 +2963,7 @@ class MetaDetailsViewModel @Inject constructor(
         if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) return
 
         val state = _uiState.value
-        if (state.trailerUrl == null || state.isTrailerPlaying) return
+        if (state.trailerUrl == null || state.isTrailerPlaying || state.isBackgroundTrailerPlaying) return
         if (!trailerAutoplayEnabled) return
         if (trailerHasPlayed) return
         if (!isPlayButtonFocused) return
@@ -2938,9 +2971,10 @@ class MetaDetailsViewModel @Inject constructor(
         idleTimerJob = viewModelScope.launch {
             delay(trailerDelayMs)
             setTrailerPlaybackState(
-                isPlaying = true,
+                isPlaying = !trailerPlayInBackground,
                 showControls = false,
-                hideLogo = false
+                hideLogo = false,
+                isBackgroundPlaying = trailerPlayInBackground
             )
         }
     }
@@ -2977,7 +3011,7 @@ class MetaDetailsViewModel @Inject constructor(
         isPlayButtonFocused = false
         dismissSharedTrailerOverlay()
         val state = _uiState.value
-        if (state.isTrailerPlaying && !state.showTrailerControls) {
+        if ((state.isTrailerPlaying && !state.showTrailerControls) || state.isBackgroundTrailerPlaying) {
             trailerHasPlayed = true
             setTrailerPlaybackState(isPlaying = false, showControls = false, hideLogo = false)
         }
@@ -3032,7 +3066,7 @@ class MetaDetailsViewModel @Inject constructor(
 
         idleTimerJob?.cancel()
         isPlayButtonFocused = false
-        if (_uiState.value.isTrailerPlaying) {
+        if (_uiState.value.isTrailerPlaying || _uiState.value.isBackgroundTrailerPlaying) {
             setTrailerPlaybackState(
                 isPlaying = false,
                 showControls = false,

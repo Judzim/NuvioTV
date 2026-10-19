@@ -273,6 +273,7 @@ data class PlayerSettings(
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = true,
     val streamAutoPlayReuseBingeGroup: Boolean = false,
     val streamAutoPlayTimeoutSeconds: Int = 10,
+    val preloadNextEpisodeSources: Boolean = false,
     val stillWatchingEnabled: Boolean = false,
     val stillWatchingEpisodeThreshold: Int = DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
@@ -539,6 +540,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlayPreferBingeGroupForNextEpisodeKey = booleanPreferencesKey("stream_auto_play_prefer_bingegroup_next_episode")
     private val streamAutoPlayReuseBingeGroupKey = booleanPreferencesKey("stream_auto_play_reuse_binge_group")
     private val streamAutoPlayTimeoutSecondsKey = intPreferencesKey("stream_auto_play_timeout_seconds")
+    private val preloadNextEpisodeSourcesKey = booleanPreferencesKey("preload_next_episode_sources")
     private val stillWatchingEnabledKey = booleanPreferencesKey("still_watching_enabled")
     private val stillWatchingEpisodeThresholdKey = intPreferencesKey("still_watching_episode_threshold")
     private val nextEpisodeThresholdModeKey = stringPreferencesKey("next_episode_threshold_mode")
@@ -936,6 +938,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 streamAutoPlayTimeoutSeconds = PlayerSettings.applyLegacyTimeoutSentinelMigration(
                     prefs[streamAutoPlayTimeoutSecondsKey]
                 ),
+                preloadNextEpisodeSources = prefs[preloadNextEpisodeSourcesKey] ?: false,
                 stillWatchingEnabled = prefs[stillWatchingEnabledKey] ?: false,
                 stillWatchingEpisodeThreshold = prefs[stillWatchingEpisodeThresholdKey]
                     ?.coerceIn(
@@ -1335,6 +1338,12 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun setPreloadNextEpisodeSources(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[preloadNextEpisodeSourcesKey] = enabled
+        }
+    }
+
     suspend fun setStillWatchingEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[stillWatchingEnabledKey] = enabled
@@ -1649,10 +1658,6 @@ class PlayerSettingsDataStore @Inject constructor(
             prefs.remove(parallelChunkSizeMbKey)
             prefs[enableHttp2Key] = PlayerSettings.DEFAULT_ENABLE_HTTP2
         }
-    }
-
-    suspend fun setEnableHttp2(enabled: Boolean) {
-        store().edit { it[enableHttp2Key] = enabled }
     }
 
     suspend fun setVodCacheEnabled(enabled: Boolean) {

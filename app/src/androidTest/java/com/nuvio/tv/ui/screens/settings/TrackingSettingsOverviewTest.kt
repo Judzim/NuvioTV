@@ -190,8 +190,7 @@ class TrackingSettingsOverviewTest {
                     onMoreLikeThisClick = {},
                     onAnimeIdClick = {},
                     onWatchedThresholdChange = {},
-                    onRewatchModeClick = {},
-                    onRewatchNextUpClick = {}
+                    onRewatchModeClick = {}
                 )
             }
         }
@@ -276,8 +275,7 @@ class TrackingSettingsOverviewTest {
                     onMoreLikeThisClick = {},
                     onAnimeIdClick = {},
                     onWatchedThresholdChange = {},
-                    onRewatchModeClick = {},
-                    onRewatchNextUpClick = {}
+                    onRewatchModeClick = {}
                 )
             }
         }

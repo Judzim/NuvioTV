@@ -47,6 +47,34 @@ fun buildSimklHistoryMutationBody(
     buildHistoryRequest(items, includeWatchedAt = true, isRewatch = isRewatch)
 )
 
+/**
+ * Closes a running rewatch session.
+ *
+ * The write names the session and the state it moves to, and carries no watch: closing changes what
+ * the account keeps about the session, it is not a viewing. It has to say `is_rewatch: true` as well,
+ * because that flag is what makes Simkl read the write through its rewatch logic at all: without it
+ * the very same body is answered as a plain history write, the session is left alone, and nothing in
+ * the answer says so.
+ */
+fun buildSimklRewatchCloseBody(
+    media: TrackingMediaReference,
+    rewatchId: Long,
+    json: Json = SimklMutationJson
+): String = json.encodeToString(
+    SimklHistoryMutationRequestDto(
+        shows = listOf(
+            SimklHistoryItemDto(
+                title = media.title.nonBlankOrNull(),
+                year = media.year,
+                ids = media.ids.toSimklJsonObjectOrNull(),
+                isRewatch = true,
+                rewatchId = rewatchId,
+                rewatchStatus = SimklRewatchStatus.CLOSED.name.lowercase()
+            )
+        )
+    )
+)
+
 fun buildSimklHistoryRemovalBody(
     items: Collection<TrackingMediaReference>,
     json: Json = SimklMutationJson
@@ -94,7 +122,8 @@ private fun buildHistoryRequest(
             item.media.toHistoryItemDto(
                 watchedAtEpochMs = item.watchedAtEpochMs.takeIf { includeWatchedAt },
                 includeWatchedAt = includeWatchedAt,
-                isRewatch = isRewatch
+                isRewatch = isRewatch,
+                rewatchId = item.rewatchId
             )
         }
     val shows = items.filter { item -> item.media.kind != TrackingMediaKind.MOVIE }
@@ -111,12 +140,16 @@ private fun buildShowHistoryItem(
 ): SimklHistoryItemDto {
     val first = items.first()
     val parentMutation = items.lastOrNull { item -> item.media.episode == null }
+    // The session the write belongs to is carried by the item, not by the episode: Simkl documents it
+    // as a field of the movie or show entry.
+    val rewatchId = (parentMutation ?: first).rewatchId
     if (parentMutation != null) {
         return parentMutation.media.toHistoryItemDto(
             watchedAtEpochMs = parentMutation.watchedAtEpochMs.takeIf { includeWatchedAt },
             includeWatchedAt = includeWatchedAt,
             status = if (includeWatchedAt) TrackingListStatus.COMPLETED.wireValue else null,
-            isRewatch = isRewatch
+            isRewatch = isRewatch,
+            rewatchId = rewatchId
         )
     }
 
@@ -146,7 +179,8 @@ private fun buildShowHistoryItem(
         episodes = flatEpisodes,
         seasons = seasons,
         useTvdbAnimeSeasons = first.media.kind == TrackingMediaKind.ANIME && seasons.isNotEmpty(),
-        isRewatch = isRewatch
+        isRewatch = isRewatch,
+        rewatchId = rewatchId
     )
 }
 
@@ -157,7 +191,8 @@ private fun TrackingMediaReference.toHistoryItemDto(
     episodes: List<SimklEpisodeMutationDto> = emptyList(),
     seasons: List<SimklSeasonMutationDto> = emptyList(),
     useTvdbAnimeSeasons: Boolean = false,
-    isRewatch: Boolean = false
+    isRewatch: Boolean = false,
+    rewatchId: Long? = null
 ): SimklHistoryItemDto = SimklHistoryItemDto(
     title = title.nonBlankOrNull(),
     year = year,
@@ -167,7 +202,8 @@ private fun TrackingMediaReference.toHistoryItemDto(
     episodes = episodes,
     seasons = seasons,
     useTvdbAnimeSeasons = useTvdbAnimeSeasons,
-    isRewatch = isRewatch.takeIf { it }
+    isRewatch = isRewatch.takeIf { it },
+    rewatchId = rewatchId
 )
 
 private fun TrackingMediaReference.toScrobbleMediaDto(): SimklScrobbleMediaDto =
@@ -268,7 +304,9 @@ private data class SimklHistoryItemDto(
     val episodes: List<SimklEpisodeMutationDto> = emptyList(),
     val seasons: List<SimklSeasonMutationDto> = emptyList(),
     @SerialName("use_tvdb_anime_seasons") val useTvdbAnimeSeasons: Boolean = false,
-    @SerialName("is_rewatch") val isRewatch: Boolean? = null
+    @SerialName("is_rewatch") val isRewatch: Boolean? = null,
+    @SerialName("rewatch_id") val rewatchId: Long? = null,
+    @SerialName("rewatch_status") val rewatchStatus: String? = null
 )
 
 @Serializable

@@ -111,7 +111,7 @@ class HomeEnrichmentRepositoryBoundaryTest {
         val addonRepository = mockk<AddonRepository>(relaxed = true) {
             every { getInstalledAddons() } returns flowOf(listOf(metaAddon()))
         }
-        return MetaRepositoryImpl(context = context, api = api, addonRepository = addonRepository)
+        return MetaRepositoryImpl(context = context, api = api, addonRepository = addonRepository, serverCatalog = mockk(relaxed = true))
     }
 
     /** Deliberately not the catalog source, or the lookup short-circuits as source-sufficient. */
@@ -201,8 +201,9 @@ class HomeEnrichmentRepositoryBoundaryTest {
             cwEnrichmentCache = cwEnrichmentCache,
             profileManager = profileManager,
             tvRecommendationManager = mockk(relaxed = true),
-            simklSyncRepository = mockk(relaxed = true)
-        )
+            simklSyncRepository = mockk(relaxed = true),
+            simklRewatchWriter = mockk(relaxed = true),
+            serverCatalog = mockk(relaxed = true)        )
         viewModel.startupGracePeriodActive = false
         viewModel.externalMetaPrefetchEnabled = true
         viewModel.currentTmdbSettings = TmdbSettings(enabled = false)

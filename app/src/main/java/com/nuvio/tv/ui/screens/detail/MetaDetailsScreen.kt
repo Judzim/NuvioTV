@@ -60,6 +60,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
@@ -67,6 +68,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.runtime.State
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -506,6 +511,7 @@ fun MetaDetailsScreen(
 
     val currentIsTrailerPlaying by rememberUpdatedState(uiState.isTrailerPlaying)
     val currentShowTrailerControls by rememberUpdatedState(uiState.showTrailerControls)
+    val trailerControllerFocusRequester = remember { FocusRequester() }
     var trailerSeekOverlayVisible by remember { mutableStateOf(false) }
     val trailerSeekOverlayState = remember { TrailerSeekOverlayState() }
     var trailerSeekToken by remember { mutableIntStateOf(0) }
@@ -515,6 +521,12 @@ fun MetaDetailsScreen(
         { position: Long, duration: Long ->
             trailerSeekOverlayState.positionMs = position
             trailerSeekOverlayState.durationMs = duration
+        }
+    }
+
+    LaunchedEffect(uiState.isTrailerPlaying, uiState.showTrailerControls) {
+        if (uiState.isTrailerPlaying && uiState.showTrailerControls) {
+            trailerControllerFocusRequester.requestFocusAfterFrames()
         }
     }
 
@@ -850,6 +862,7 @@ fun MetaDetailsScreen(
                     nextToWatch = uiState.nextToWatch,
                     episodeProgressMap = uiState.episodeProgressMap,
                     watchedEpisodes = uiState.watchedEpisodes,
+                    rewatchEpisodes = uiState.rewatchEpisodes,
                     episodeWatchedPendingKeys = uiState.episodeWatchedPendingKeys,
                     blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                     randomEpisodeEnabled = uiState.randomEpisodeEnabled,
@@ -960,6 +973,8 @@ fun MetaDetailsScreen(
                     trailerUrl = uiState.trailerUrl,
                     trailerAudioUrl = uiState.trailerAudioUrl,
                     isTrailerPlaying = uiState.isTrailerPlaying,
+                    isBackgroundTrailerPlaying = uiState.isBackgroundTrailerPlaying,
+                    pauseBackgroundTrailerOnScroll = uiState.pauseBackgroundTrailerOnScroll,
                     isTrailerPaused = isTrailerPaused,
                     showTrailerControls = uiState.showTrailerControls,
                     hideLogoDuringTrailer = uiState.hideLogoDuringTrailer,
@@ -1029,7 +1044,11 @@ fun MetaDetailsScreen(
                         }
                     },
                     onTrailerProgressChanged = onTrailerProgressChanged,
-                    onTrailerEnded = { viewModel.onEvent(MetaDetailsEvent.OnTrailerEnded) },
+                    onTrailerEnded = {
+                        restorePlayFocusAfterTrailerBackToken += 1
+                        isTrailerPaused = false
+                        viewModel.onEvent(MetaDetailsEvent.OnTrailerEnded)
+                    },
                     onTrailerButtonClick = { viewModel.onEvent(MetaDetailsEvent.OnTrailerButtonClick) },
                     onSharedTrailerSelected = { viewModel.onEvent(MetaDetailsEvent.OnSharedTrailerSelected(it)) },
                     onDismissSharedTrailer = { viewModel.onEvent(MetaDetailsEvent.OnDismissSharedTrailer) },
@@ -1125,6 +1144,15 @@ fun MetaDetailsScreen(
             }
         }
 
+        if (uiState.isTrailerPlaying && uiState.showTrailerControls) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusRequester(trailerControllerFocusRequester)
+                    .focusable()
+            )
+        }
+
         TrailerSeekOverlayHost(
             visible = uiState.isTrailerPlaying && uiState.showTrailerControls && trailerSeekOverlayVisible,
             overlayState = trailerSeekOverlayState,
@@ -1174,6 +1202,7 @@ private fun MetaDetailsContent(
     nextToWatch: NextToWatch?,
     episodeProgressMap: Map<Pair<Int, Int>, WatchProgress>,
     watchedEpisodes: Set<Pair<Int, Int>>,
+    rewatchEpisodes: Set<Pair<Int, Int>> = emptySet(),
     episodeWatchedPendingKeys: Set<String>,
     blurUnwatchedEpisodes: Boolean,
     randomEpisodeEnabled: Boolean,
@@ -1230,6 +1259,8 @@ private fun MetaDetailsContent(
     trailerUrl: String?,
     trailerAudioUrl: String?,
     isTrailerPlaying: Boolean,
+    isBackgroundTrailerPlaying: Boolean,
+    pauseBackgroundTrailerOnScroll: Boolean,
     isTrailerPaused: Boolean = false,
     showTrailerControls: Boolean,
     hideLogoDuringTrailer: Boolean,
@@ -1780,6 +1811,12 @@ private fun MetaDetailsContent(
         }
     }
 
+    val belowHeroAlpha = animateFloatAsState(
+        targetValue = if (isTrailerPlaying) 0f else 1f,
+        animationSpec = tween(NuvioMotion.tokens.durations.overlay),
+        label = "belowHeroFade"
+    )
+
     // Pre-compute cast members to avoid recomputation in lazy scope
     val castMembersToShow = remember(meta.castMembers, meta.cast) {
         if (meta.castMembers.isNotEmpty()) {
@@ -2265,6 +2302,8 @@ private fun MetaDetailsContent(
             trailerUrl = trailerUrl,
             trailerAudioUrl = trailerAudioUrl,
             isTrailerPlaying = isTrailerPlaying,
+            isBackgroundTrailerPlaying = isBackgroundTrailerPlaying,
+            pauseBackgroundTrailerOnScroll = pauseBackgroundTrailerOnScroll,
             isTrailerPaused = isTrailerPaused,
             showTrailerControls = showTrailerControls,
             trailerSeekToken = trailerSeekToken,
@@ -2279,7 +2318,9 @@ private fun MetaDetailsContent(
 
         // Single scrollable column with hero + content
         CompositionLocalProvider(
-            LocalBringIntoViewSpec provides if (suppressRestoreBringIntoView) {
+            // The hero grows to full height during a trailer; keep the list from
+            // scrolling to follow the focused hero while it resizes.
+            LocalBringIntoViewSpec provides if (suppressRestoreBringIntoView || isTrailerPlaying) {
                 restoreNoScrollBringIntoViewSpec
             } else {
                 detailPageBringIntoViewSpec
@@ -2289,6 +2330,7 @@ private fun MetaDetailsContent(
             modifier = Modifier
                 .fillMaxSize()
                 .recompositionHighlighter()
+                .fadeBelowHero(listState, belowHeroAlpha)
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
                     if (native.action == KeyEvent.ACTION_DOWN) {
@@ -2530,6 +2572,7 @@ private fun MetaDetailsContent(
                             episodeProgressMap = episodeProgressMap,
                             episodeRatings = visibleEpisodeImdbRatings,
                             watchedEpisodes = watchedEpisodes,
+                            rewatchedEpisodes = rewatchEpisodes,
                             episodeWatchedPendingKeys = episodeWatchedPendingKeys,
                             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                             episodeOptionsOverlayStyle = episodeOptionsOverlayStyle,
@@ -3159,6 +3202,36 @@ private fun PlaybackHandoffBackdrop(backdropUrl: String?) {
     }
 }
 
+/**
+ * Fades the rows below the hero item while a full-screen trailer plays. On screens
+ * taller than the hero (lower-density TV boxes) the next row would otherwise sit over
+ * the trailer.
+ */
+private fun Modifier.fadeBelowHero(
+    listState: LazyListState,
+    alpha: State<Float>
+): Modifier = drawWithCache {
+    val layerPaint = Paint()
+    onDrawWithContent {
+        val belowHeroAlpha = alpha.value
+        if (belowHeroAlpha >= 1f) {
+            drawContent()
+            return@onDrawWithContent
+        }
+        val heroBottom = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.key == "hero" }
+            ?.let { (it.offset + it.size).toFloat() }
+            ?: 0f
+        clipRect(bottom = heroBottom) { this@onDrawWithContent.drawContent() }
+        if (belowHeroAlpha > 0f) {
+            layerPaint.alpha = belowHeroAlpha
+            drawContext.canvas.saveLayer(Rect(0f, heroBottom, size.width, size.height), layerPaint)
+            clipRect(top = heroBottom) { this@onDrawWithContent.drawContent() }
+            drawContext.canvas.restore()
+        }
+    }
+}
+
 @Composable
 private fun BackdropLayer(
     backdropRequest: ImageRequest,
@@ -3166,6 +3239,8 @@ private fun BackdropLayer(
     trailerUrl: String?,
     trailerAudioUrl: String?,
     isTrailerPlaying: Boolean,
+    isBackgroundTrailerPlaying: Boolean,
+    pauseBackgroundTrailerOnScroll: Boolean,
     isTrailerPaused: Boolean = false,
     showTrailerControls: Boolean,
     trailerSeekToken: Int,
@@ -3180,10 +3255,28 @@ private fun BackdropLayer(
     var showHeroBackdropUnderlay by remember(heroBackdropRequest, backdropRequest) {
         mutableStateOf(heroBackdropRequest != null)
     }
+    val isBackgroundTrailerPaused =
+        isBackgroundTrailerPlaying && pauseBackgroundTrailerOnScroll && isScrolledPastHero
+    val isBackgroundTrailerVisible = isBackgroundTrailerPlaying && !isBackgroundTrailerPaused
+    var isBackgroundTrailerRendered by remember(isBackgroundTrailerPlaying) { mutableStateOf(false) }
     val backdropAlphaState = animateFloatAsState(
-        targetValue = if (isTrailerPlaying) 0f else if (isScrolledPastHero) 0.15f else 1f,
+        targetValue = when {
+            isTrailerPlaying -> 0f
+            isBackgroundTrailerVisible && isBackgroundTrailerRendered -> 0f
+            isScrolledPastHero -> 0.15f
+            else -> 1f
+        },
         animationSpec = tween(durationMillis = if (isScrolledPastHero) 300 else 800),
         label = "backdropFade"
+    )
+    val backgroundTrailerAlphaState = animateFloatAsState(
+        targetValue = when {
+            !isBackgroundTrailerVisible -> 0f
+            isScrolledPastHero -> 0.15f
+            else -> 1f
+        },
+        animationSpec = tween(durationMillis = if (isScrolledPastHero) 300 else 800),
+        label = "backgroundTrailerFade"
     )
     val gradientAlphaState = animateFloatAsState(
         targetValue = if (isTrailerPlaying || isScrolledPastHero) 0f else 1f,
@@ -3215,14 +3308,21 @@ private fun BackdropLayer(
         TrailerPlayer(
             trailerUrl = trailerUrl,
             trailerAudioUrl = trailerAudioUrl,
-            isPlaying = isTrailerPlaying,
-            isPaused = isTrailerPaused,
+            isPlaying = isTrailerPlaying || isBackgroundTrailerPlaying,
+            isPaused = isTrailerPaused || isBackgroundTrailerPaused,
             seekRequestToken = if (showTrailerControls) trailerSeekToken else 0,
             seekDeltaMs = if (showTrailerControls) trailerSeekDeltaMs else 0L,
             onRemoteKey = onTrailerControlKey,
             onProgressChanged = onTrailerProgressChanged,
             onEnded = onTrailerEnded,
-            modifier = Modifier.fillMaxSize()
+            onFirstFrameRendered = { isBackgroundTrailerRendered = true },
+            cropToFill = isBackgroundTrailerPlaying,
+            autoCropLetterbox = isBackgroundTrailerPlaying,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = if (isBackgroundTrailerPlaying) backgroundTrailerAlphaState.value else 1f
+                }
         )
         Box(
             modifier = Modifier

@@ -1,17 +1,21 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.core.tracking.TRACKING_COMPLETION_BAR_PERCENT
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 
 /**
  * How Nuvio records rewatches on Simkl.
  *
  * Simkl requires an explicit opt-in for rewatch bookkeeping, so the default is [OFF].
- * [AUTOMATIC] sends `allow_rewatch=yes` on every finished playback, [MANUAL] asks after the
- * playback instead and only writes when the user confirms.
+ * [AUTOMATIC] sends `allow_rewatch=yes` on every finished playback, [SEMI_AUTOMATIC] asks once
+ * before a playback that would open a run and records the rest of the run without asking.
+ *
+ * The mode only says how a run is started. A run the account holds is shown by Continue Watching
+ * while either of the two recording modes is on, and never while it is [OFF].
  */
 enum class SimklRewatchMode {
     OFF,
-    MANUAL,
+    SEMI_AUTOMATIC,
     AUTOMATIC,
     ;
 
@@ -20,6 +24,10 @@ enum class SimklRewatchMode {
 
         fun fromStorage(value: String?): SimklRewatchMode {
             val normalized = value?.trim().orEmpty()
+            // "MANUAL" is the mode the first version of the setting shipped as; it asked for the
+            // same consent, only after the playback instead of before it, so the stored answer
+            // keeps its meaning and no migration is needed.
+            if (normalized.equals("MANUAL", ignoreCase = true)) return SEMI_AUTOMATIC
             return entries.firstOrNull { mode -> mode.name.equals(normalized, ignoreCase = true) } ?: Default
         }
     }
@@ -40,12 +48,7 @@ internal const val SIMKL_WATCHED_THRESHOLD_MAX_PERCENT = 95
 internal val SimklWatchedThresholdRange: IntRange =
     SIMKL_WATCHED_THRESHOLD_MIN_PERCENT..SIMKL_WATCHED_THRESHOLD_MAX_PERCENT
 
-/*
- * Difference from mobile: mobile has a top level `simklWatchedThresholdPercent` getter that reads
- * `TrackingSettingsRepository.uiState.value`. TV has no such `object` repository for UI state, only
- * `TraktSettingsDataStore`, so the threshold is not read here. It is passed in as a parameter and
- * the scrobbler reads it from the store.
- */
+/* The completion threshold is a parameter here; the scrobbler reads it from the store. */
 
 internal fun coerceSimklWatchedThresholdPercent(percent: Int): Int = percent.coerceIn(
     minimumValue = SIMKL_WATCHED_THRESHOLD_MIN_PERCENT,
@@ -122,8 +125,52 @@ internal val SIMKL_REWATCH_RECHECK_DELAYS_MS = longArrayOf(2_000L, 5_000L)
 internal val SIMKL_ALLOW_REWATCH_QUERY: Map<String, String> = mapOf("allow_rewatch" to "yes")
 
 /**
- * Whether the scrobble call itself should carry `allow_rewatch=yes`. Only automatic mode does that,
- * because a confirmed rewatch is written after the fact through `/sync/history`.
+ * The completion threshold a scrobble call carries, as Simkl's `min_progress`.
+ *
+ * Simkl reads a whole number from 50 to 100 out of the query string, drops the decimals, counts
+ * anything above 100 as 100 and anything under 50 as 50, and it ignores the key in the body. The
+ * number is floored and clamped here, once, and then used both in the query and in the client's own
+ * comparisons, so the account and the client judge a stop by the same number: what Simkl counts as
+ * watched is what this app counts as finished, and what falls below it is the pause it reports.
+ *
+ * The value rides on the call it is sent with. On a stop it is where the stop turns into a watch; on
+ * a start (and on a check-in) it is the bar the session being replaced has to have reached to be
+ * completed, which is the same rule this client keeps: a playback left open below the threshold is
+ * not finished, so a later start must not finish it. Simkl's own number is 80, which is below every
+ * threshold this app can send.
+ */
+internal fun simklMinProgressPercent(completionThresholdPercent: Double): Int =
+    completionThresholdPercent
+        .takeIf { value -> value.isFinite() }
+        ?.toInt()
+        ?.coerceIn(SIMKL_MIN_PROGRESS_MIN_PERCENT, SIMKL_MIN_PROGRESS_MAX_PERCENT)
+        ?: SIMKL_REWATCH_MIN_PROGRESS_PERCENT.toInt()
+
+/** The bounds Simkl accepts for `min_progress`. */
+internal const val SIMKL_MIN_PROGRESS_MIN_PERCENT = 50
+internal const val SIMKL_MIN_PROGRESS_MAX_PERCENT = 100
+
+/** The query key Simkl reads the completion threshold from. It only works in the URL. */
+internal const val SIMKL_MIN_PROGRESS_QUERY_KEY = "min_progress"
+
+/**
+ * The query a scrobble call carries: the completion threshold the call is judged by, and the rewatch
+ * flag where the call is one that may record a session.
+ */
+internal fun simklScrobbleQuery(
+    completionThresholdPercent: Double,
+    recordRewatch: Boolean,
+): Map<String, String> = buildMap {
+    put(SIMKL_MIN_PROGRESS_QUERY_KEY, simklMinProgressPercent(completionThresholdPercent).toString())
+    if (recordRewatch) putAll(SIMKL_ALLOW_REWATCH_QUERY)
+}
+
+/**
+ * Whether the scrobble call itself should carry `allow_rewatch=yes`.
+ *
+ * [AUTOMATIC] asks for a rewatch on every finished playback. [SEMI_AUTOMATIC] does it only where
+ * the user said so: a run of the item is open on the account, or the question before the playback
+ * was answered with yes. A semi-automatic write is therefore never the client guessing at a run.
  */
 internal fun shouldRecordSimklRewatchOnStop(
     mode: SimklRewatchMode,
@@ -131,36 +178,46 @@ internal fun shouldRecordSimklRewatchOnStop(
     action: TrackingScrobbleAction,
     progressPercent: Double,
     completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
+    hasRunningSession: Boolean = false,
+    consented: Boolean = false,
 ): Boolean = when {
-    mode != SimklRewatchMode.AUTOMATIC -> false
+    mode == SimklRewatchMode.OFF -> false
     !isSimklRewatchPlanEligible(accountType) -> false
     action != TrackingScrobbleAction.STOP -> false
     progressPercent < completionThresholdPercent -> false
-    else -> true
+    mode == SimklRewatchMode.AUTOMATIC -> true
+    else -> hasRunningSession || consented
 }
 
 /**
- * Whether the user should be asked to record the playback Simkl just accepted as a repeat viewing.
+ * Whether to ask, before a playback starts, whether it opens a new rewatch run.
  *
- * The question is only worth asking when Simkl would create a session for it: the plan has to allow
- * rewatches and the item has to be in the user's history already. A watch from the last 48 hours is
- * skipped, because Simkl folds those into the existing session and a confirmation would do nothing.
+ * The question is only worth asking where Simkl would open a session for the playback: the plan has
+ * to allow rewatches, the item has to be in the user's history already, and its last watch has to
+ * be older than 48 hours, or Simkl folds the new one into it and a yes would change nothing. A run
+ * that is already open never asks: the playback is simply written into it.
+ *
+ * Only [SimklRewatchMode.SEMI_AUTOMATIC] asks. The answer is carried to the end of the playback,
+ * where it decides whether the scrobble asks Simkl for a rewatch (see [shouldRecordSimklRewatchOnStop]).
  */
-internal fun shouldPromptSimklRewatch(
+internal fun shouldAskToStartSimklRewatch(
     mode: SimklRewatchMode,
     accountType: String?,
     action: TrackingScrobbleAction,
-    outcome: SimklScrobbleOutcome,
-    progressPercent: Double,
     priorWatch: SimklPriorWatch,
     nowEpochMs: Long,
-    completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
+    hasRunningSession: Boolean,
+    progressPercent: Double = 0.0,
 ): Boolean {
-    if (mode != SimklRewatchMode.MANUAL) return false
+    if (mode != SimklRewatchMode.SEMI_AUTOMATIC) return false
     if (!isSimklRewatchPlanEligible(accountType)) return false
-    if (action != TrackingScrobbleAction.STOP) return false
-    if (outcome != SimklScrobbleOutcome.SCROBBLE) return false
-    if (progressPercent < completionThresholdPercent) return false
+    if (action != TrackingScrobbleAction.START) return false
+    if (hasRunningSession) return false
+    // A start the player sends above the completion bar says that a playback that was already under
+    // way is running again, not that a viewing is beginning: the question belongs before a playback,
+    // and this one was asked when it began. The trackers still hear about the playback, which is why
+    // the start itself travels.
+    if (progressPercent >= TRACKING_COMPLETION_BAR_PERCENT) return false
     if (!priorWatch.wasWatched) return false
     val watchedAt = priorWatch.watchedAtEpochMs ?: return true
     return nowEpochMs - watchedAt >= SIMKL_REWATCH_MIN_GAP_MS
@@ -184,6 +241,9 @@ internal fun isSimklRewatchPlanEligible(accountType: String?): Boolean {
     val normalized = accountType?.trim()?.lowercase().orEmpty()
     return normalized == "pro" || normalized == "vip"
 }
+
+/** The plan Simkl reports for an account without rewatches; the cached plan is corrected to it. */
+internal const val SIMKL_FREE_PLAN = "free"
 
 /** Free-tier accounts cannot record rewatches, so the picker keeps them off and offers an upgrade. */
 internal fun isSimklRewatchModeSelectable(

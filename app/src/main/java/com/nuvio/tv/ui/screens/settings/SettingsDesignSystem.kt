@@ -37,7 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -66,6 +68,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -126,6 +133,14 @@ internal fun isFlatSettingsStyle(): Boolean = NuvioTheme.settingsUiStyle != Sett
 @Composable
 @androidx.compose.runtime.ReadOnlyComposable
 internal fun settingsFocusFillColor(): Color = NuvioTheme.colors.TextPrimary.copy(alpha = 0.1f)
+
+@Composable
+@androidx.compose.runtime.ReadOnlyComposable
+internal fun settingsHeaderInset(): Dp = when (NuvioTheme.settingsUiStyle) {
+    SettingsUiStyle.CLASSIC -> 0.dp
+    SettingsUiStyle.ZEN -> NuvioTheme.spacing.md
+    SettingsUiStyle.HORIZON -> NuvioTheme.spacing.xs
+}
 
 @Composable
 @androidx.compose.runtime.ReadOnlyComposable
@@ -347,7 +362,8 @@ internal fun SettingsRailButton(
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     icon: ImageVector? = null,
-    rawIconRes: Int? = null
+    rawIconRes: Int? = null,
+    suppressSelectedVisual: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val zen = isFlatSettingsStyle()
@@ -357,6 +373,7 @@ internal fun SettingsRailButton(
     } else {
         modifier
     }
+    val showSelected = isSelected && !suppressSelectedVisual
 
     Card(
         onClick = onClick,
@@ -374,7 +391,7 @@ internal fun SettingsRailButton(
         colors = CardDefaults.colors(
             containerColor = when {
                 zen -> Color.Transparent
-                isSelected -> NuvioTheme.colors.BackgroundCard
+                showSelected -> NuvioTheme.colors.BackgroundCard
                 else -> NuvioTheme.colors.Background
             },
             focusedContainerColor = if (zen) settingsFocusFillColor() else NuvioTheme.colors.BackgroundCard
@@ -383,7 +400,7 @@ internal fun SettingsRailButton(
             CardDefaults.border(border = Border.None, focusedBorder = Border.None)
         } else {
             CardDefaults.border(
-                border = if (isSelected) Border(
+                border = if (showSelected) Border(
                     border = NuvioTheme.focusRing.border(NuvioTheme.spacing.hairline),
                     shape = RoundedCornerShape(SettingsPillRadius)
                 ) else Border.None,
@@ -399,7 +416,12 @@ internal fun SettingsRailButton(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = SettingsRailItemHeight),
+                .heightIn(min = SettingsRailItemHeight)
+                .clearAndSetSemantics {
+                    contentDescription = title
+                    role = Role.Tab
+                    this.selected = isSelected
+                },
             contentAlignment = Alignment.CenterStart
         ) {
             Row(
@@ -420,7 +442,7 @@ internal fun SettingsRailButton(
                                 .height(16.dp)
                                 .clip(RoundedCornerShape(SettingsPillRadius))
                                 .background(
-                                    if (isSelected) NuvioTheme.colors.Secondary else Color.Transparent
+                                    if (showSelected) NuvioTheme.colors.Secondary else Color.Transparent
                                 )
                         )
                         Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
@@ -460,7 +482,7 @@ internal fun SettingsRailButton(
 
                 if (!zen) {
                     Icon(
-                        imageVector = Icons.Default.ChevronRight,
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
                         tint = NuvioTheme.colors.TextTertiary,
                         modifier = Modifier.size(18.dp)
@@ -481,7 +503,8 @@ internal fun SettingsTopBarTab(
     onFocused: () -> Unit = {},
     icon: ImageVector? = null,
     rawIconRes: Int? = null,
-    onFocusedTabPositioned: ((LayoutCoordinates) -> Unit)? = null
+    onFocusedTabPositioned: ((LayoutCoordinates) -> Unit)? = null,
+    suppressSelectedVisual: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     var tabCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -491,10 +514,11 @@ internal fun SettingsTopBarTab(
     } else {
         modifier
     }
+    val showSelected = isSelected && !suppressSelectedVisual
     val contentColor by animateColorAsState(
         targetValue = when {
             isFocused -> NuvioTheme.colors.OnSecondary
-            isSelected -> NuvioTheme.colors.TextPrimary
+            showSelected -> NuvioTheme.colors.TextPrimary
             else -> NuvioTheme.colors.TextSecondary
         },
         animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
@@ -519,7 +543,7 @@ internal fun SettingsTopBarTab(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) {
+            containerColor = if (showSelected) {
                 NuvioTheme.colors.Secondary.copy(alpha = 0.18f)
             } else {
                 Color.Transparent
@@ -559,7 +583,7 @@ internal fun SettingsTopBarTab(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(
-                    fontWeight = if (isSelected || isFocused) FontWeight.SemiBold else FontWeight.Medium
+                    fontWeight = if (showSelected || isFocused) FontWeight.SemiBold else FontWeight.Medium
                 ),
                 color = contentColor,
                 maxLines = 1,
@@ -579,7 +603,7 @@ internal fun SettingsDetailHeader(
         SettingsUiStyle.ZEN -> Column(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(start = NuvioTheme.spacing.md, bottom = NuvioTheme.spacing.sm),
+                .padding(start = settingsHeaderInset(), bottom = NuvioTheme.spacing.sm),
             verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
         ) {
             Text(
@@ -596,7 +620,7 @@ internal fun SettingsDetailHeader(
         SettingsUiStyle.HORIZON -> Column(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(start = NuvioTheme.spacing.xs, bottom = NuvioTheme.spacing.sm),
+                .padding(start = settingsHeaderInset(), bottom = NuvioTheme.spacing.sm),
             verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
         ) {
             Text(
@@ -728,6 +752,8 @@ internal fun SettingsToggleRow(
             .focusProperties { canFocus = enabled }
             .semantics {
                 if (!enabled) disabled()
+                role = Role.Switch
+                toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
             }
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
@@ -797,7 +823,7 @@ internal fun SettingsActionRow(
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
     enabled: Boolean = true,
-    trailingIcon: ImageVector = Icons.Default.ChevronRight,
+    trailingIcon: ImageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
     titleTrailingIcon: ImageVector? = null,
     titleTrailingIconTint: Color = NuvioTheme.colors.TextPrimary,
     leadingIcon: ImageVector? = null,
@@ -816,6 +842,7 @@ internal fun SettingsActionRow(
             .focusProperties { canFocus = enabled }
             .semantics {
                 if (!enabled) disabled()
+                role = Role.Button
             }
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
@@ -1015,7 +1042,8 @@ internal fun <T> SettingsMultiChoiceDialog(
     onDismiss: () -> Unit,
     subtitle: String? = null,
     width: Dp = 520.dp,
-    maxHeight: Dp = 420.dp
+    maxHeight: Dp = 420.dp,
+    maxSelections: Int? = null
 ) {
     val focusRequester = remember { FocusRequester() }
     val selected = remember(selectedValues) { mutableStateListOf<T>().also { it.addAll(selectedValues) } }
@@ -1059,7 +1087,7 @@ internal fun <T> SettingsMultiChoiceDialog(
                             onClick = {
                                 if (isSelected) {
                                     selected.remove(option.value)
-                                } else {
+                                } else if (maxSelections == null || selected.size < maxSelections) {
                                     selected.add(option.value)
                                 }
                             },

@@ -5,9 +5,13 @@ import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tracking.RewatchRunPosition
+import com.nuvio.tv.core.player.PlayerSessionTracker
 import com.nuvio.tv.core.util.isEpisodeReleaseAired
 import com.nuvio.tv.core.util.parseEpisodeReleaseInstant
 import com.nuvio.tv.core.util.selectEpisodeReleaseValue
+import com.nuvio.tv.data.simkl.canonicalContentId
+import com.nuvio.tv.data.simkl.isRunningRewatchSession
+import com.nuvio.tv.data.simkl.mediaReference
 import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
@@ -22,10 +26,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -268,6 +274,20 @@ private class CwDebugSession {
     fun logSummary(cancelled: Boolean = false) = Unit
 }
 
+/**
+ * Holds pipeline runs while the in-app player is open. Home is covered then, and a rebuild (for
+ * example when the episode crosses the watched threshold) allocates enough to stall playback
+ * on low-memory TV devices. The hold also covers pause, buffering and seeks, so a held rebuild
+ * cannot start mid-episode and keep running once playback resumes. The latest snapshot runs
+ * once the player closes.
+ */
+private fun Flow<ContinueWatchingSettingsSnapshot>.holdWhilePlayerOpen(): Flow<ContinueWatchingSettingsSnapshot> =
+    combine(this, PlayerSessionTracker.isSessionOpen) { snapshot, playerOpen ->
+        snapshot.takeUnless { playerOpen }
+    }
+        .filterNotNull()
+        .distinctUntilChanged { old, new -> old === new }
+
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 internal fun HomeViewModel.loadContinueWatchingPipeline() {
     cwPipelineJob?.cancel()
@@ -314,7 +334,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 hasLoadedRemoteProgress = hasLoadedRemoteProgress,
                 rewatchRuns = rewatchRuns
             )
-        }.debounce(CW_PROGRESS_DEBOUNCE_MS).collectLatest { snapshot ->
+        }.debounce(CW_PROGRESS_DEBOUNCE_MS).holdWhilePlayerOpen().collectLatest { snapshot ->
             val debug = CwDebugSession()
             val pipelineProfileId = profileManager.activeProfileId.value
             try {
@@ -3214,6 +3234,44 @@ internal fun nextUpDismissKey(
     return contentId.trim()
 }
 
+/**
+ * Ends the run a Continue Watching card stands for, when the card is the run.
+ *
+ * The account holds the run, so a card of a running rewatch cannot be taken out of the row locally:
+ * Continue Watching reads the sessions, and the next read, here or on any other device, would put it
+ * back. Closing the session takes the card out everywhere it is read and keeps the watch history
+ * Simkl already has. A card whose series runs no session is left alone.
+ */
+internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String) {
+    val snapshot = simklSyncRepository.state.value.snapshot
+    // The same matcher the row used to place the card, so the two cannot disagree about which run
+    // the card stands for.
+    val run = snapshot.rewatchRuns.firstOrNull { run -> run.matches(contentId) } ?: return
+    val sessionId = snapshot.rewatchSessions
+        .firstOrNull { entry ->
+            entry.isRewatch &&
+                entry.isRunningRewatchSession() &&
+                entry.media?.canonicalContentId() == run.contentId
+        }
+        ?.rewatchId
+        ?: return
+    val closed = simklRewatchWriter.closeRewatchSession(
+        media = snapshot.mediaReference(contentId = run.contentId, contentType = SERIES_CONTENT_TYPE),
+        rewatchId = sessionId
+    )
+    if (!closed) return
+    // Closing the session removes the run everywhere, so a dismissal the row saved under one of the
+    // run's id forms must not keep hiding the series once it is back on its canonical card. Clearing
+    // after the close landed, and only here, is the trade: the blanket clearing on every emission
+    // also swept away a stale dismissal a build that could not close a session left behind.
+    for (key in run.matchKeys) {
+        traktSettingsDataStore.removeDismissedNextUpKeysForContent(key)
+    }
+}
+
+/** The content type the catalogue uses for series, which is what a run is read as. */
+private const val SERIES_CONTENT_TYPE = "series"
+
 internal fun HomeViewModel.removeContinueWatchingPipeline(
     contentId: String,
     season: Int? = null,
@@ -3251,6 +3309,9 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
         viewModelScope.launch {
             traktSettingsDataStore.addDismissedNextUpKey(dismissKey)
         }
+        // Removing a card of a running rewatch is dropping the run, and the run lives on the
+        // account: the session is closed, which is what takes the card out of the row everywhere.
+        viewModelScope.launch { closeRunningRewatchFor(contentId) }
         return
     }
     viewModelScope.launch {

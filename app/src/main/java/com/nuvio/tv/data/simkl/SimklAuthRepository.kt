@@ -142,6 +142,37 @@ class SimklAuthRepository(
         return storage.state.value.accountType
     }
 
+    /**
+     * Corrects the cached plan when the account says rewatches are not part of it.
+     *
+     * Simkl answers a stop with `rewatch_status: "pro_required"` when the account can no longer record
+     * rewatches, and its guide names that answer as the moment to correct the cached plan. Without the
+     * correction every rewatch decision would keep being made against a plan the account no longer has,
+     * so the flag would keep going out and each rewatch would be dropped.
+     *
+     * Only the plan is written. The user's own setting and the sessions already on their account are
+     * left alone, so an account that resubscribes finds everything as it was: a plan that does not
+     * prove Pro or VIP is read again, which is where the upgrade is picked up.
+     *
+     * Answers whether the plan was corrected, so a caller can tell a real correction from an account
+     * that was on a plan without rewatches already.
+     *
+     * The scope is read here rather than passed in, so the method stays a plain call for the caller
+     * that only knows the answer it got.
+     */
+    suspend fun markPlanAsFree(): Boolean {
+        val authScope = storage.currentScope()
+        if (!storage.isCurrent(authScope) || !storage.state.value.isAuthenticated) return false
+        val current = storage.state.value
+        if (!isSimklRewatchPlanEligible(current.accountType)) return false
+        return storage.saveIdentity(
+            username = current.username,
+            accountId = current.accountId,
+            accountType = SIMKL_FREE_PLAN,
+            scope = authScope
+        )
+    }
+
     suspend fun synchronizeUserSettings(activityWatermark: String?) {
         val authScope = storage.currentScope()
         if (!storage.state.value.isAuthenticated) return

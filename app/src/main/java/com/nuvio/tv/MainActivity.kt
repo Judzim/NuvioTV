@@ -97,9 +97,17 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.nuvio.tv.ui.screens.ambient.AmbientIdleController
+import com.nuvio.tv.ui.screens.ambient.AmbientModeHost
+import com.nuvio.tv.ui.screens.ambient.LocalAmbientIdleController
 import com.nuvio.tv.ui.components.LocalStartupLoadingState
 import com.nuvio.tv.ui.components.LocalStartupSplashEnabled
 import com.nuvio.tv.ui.components.StartupLoadingState
@@ -139,6 +147,7 @@ import com.nuvio.tv.core.auth.DeviceSessionRegistration
 import com.nuvio.tv.core.deeplink.DeepLinkHandler
 import com.nuvio.tv.core.deeplink.DeepLinkParser
 import com.nuvio.tv.core.player.PlayerWindowBackdrop
+import com.nuvio.tv.core.party.PartyRepository
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.StartupSyncService
@@ -152,7 +161,7 @@ import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.ThemeDataStore
 import com.nuvio.tv.data.repository.MemberAccessRepository
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
-import com.nuvio.tv.data.simkl.SimklRewatchPromptRepository
+import com.nuvio.tv.data.simkl.SimklRewatchConsentRepository
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.CustomThemeColors
@@ -178,6 +187,7 @@ import com.nuvio.tv.ui.components.ProfileAvatarCircle
 import com.nuvio.tv.ui.components.RewatchPromptOverlay
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
+import com.nuvio.tv.ui.screens.party.PartyEffects
 import com.nuvio.tv.ui.membership.LocalMemberAccess
 import com.nuvio.tv.ui.screens.account.AuthQrSignInScreen
 import com.nuvio.tv.ui.screens.addon.EssentialAddonSetupScreen
@@ -317,13 +327,16 @@ open class MainActivity : ComponentActivity() {
     @Inject
     lateinit var deepLinkHandler: DeepLinkHandler
 
+    @Inject
+    lateinit var partyRepository: PartyRepository
+
     /*
      * Held in the activity, not in the player screen: the rewatch question has to survive navigation,
-     * the way mobile holds it in `MainAppContent.kt`. `SimklRewatchPromptRepository` is a `@Singleton`
+     * the way mobile holds it in `MainAppContent.kt`. `SimklRewatchConsentRepository` is a `@Singleton`
      * and not a `@HiltViewModel`, so it is injected into the activity, not taken from `hiltViewModel`.
      */
     @Inject
-    lateinit var rewatchPromptRepository: SimklRewatchPromptRepository
+    lateinit var rewatchConsentRepository: SimklRewatchConsentRepository
 
     private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
     private val pendingLaunchIntent = MutableStateFlow<Intent?>(null)
@@ -422,6 +435,8 @@ open class MainActivity : ComponentActivity() {
                     }
                 }
             }
+
+            PartyEffects(partyRepository)
 
             LaunchedEffect(hasSeenAuthQrOnFirstLaunch, authState) {
                 if (hasSeenAuthQrOnFirstLaunch == false && authState is AuthState.FullAccount) {
@@ -706,6 +721,7 @@ open class MainActivity : ComponentActivity() {
                     LocalLandscapePosterMode provides mainUiPrefs.landscapePosterMode,
                     LocalAlwaysBackdropWithLogo provides mainUiPrefs.alwaysBackdropWithLogo,
                     LocalMemberAccess provides mainUiPrefs.memberAccess,
+                    LocalAmbientIdleController provides ambientIdleController,
                     com.nuvio.tv.core.player.LocalTrailerPlayerPool provides trailerPlayerPool,
                     LocalSplashBackground provides splashBackground,
                     LocalStartupLoadingState provides startupLoadingState,
@@ -868,6 +884,7 @@ open class MainActivity : ComponentActivity() {
 
                     LaunchedEffect(actualRoute) {
                         optimisticRoute = null
+                        ambientIdleController.onInteraction()
                     }
 
                     // Auto-play next episode for EXTERNAL players: the tracker resolves the
@@ -991,6 +1008,12 @@ open class MainActivity : ComponentActivity() {
                                         itemType = deepLink.type
                                     )
                                 ) {
+                                    launchSingleTop = true
+                                }
+                            }
+                            is AppDeepLink.Party -> {
+                                pendingDeepLinkUrl.value = null
+                                navController.navigate(Screen.WatchParty.createRoute(deepLink.code)) {
                                     launchSingleTop = true
                                 }
                             }
@@ -1204,6 +1227,11 @@ open class MainActivity : ComponentActivity() {
                                 )
                             }
 
+
+                            val isTrailerPlaying by trailerPlayerPool.isTrailerPlaying.collectAsState()
+                            LaunchedEffect(isTrailerPlaying) {
+                                if (!isTrailerPlaying) ambientIdleController.onInteraction()
+                            }
                             /*
                              * The rewatch question belongs at the same layer as `NuvioNavHost`, above
                              * the screens and next to the other app wide overlays. Hanging it in
@@ -1211,7 +1239,14 @@ open class MainActivity : ComponentActivity() {
                              * though the answer is still being written. Mobile has it in
                              * `MainAppContent.kt` at the same level.
                              */
-                            RewatchPromptOverlay(repository = rewatchPromptRepository)
+                            RewatchPromptOverlay(repository = rewatchConsentRepository)
+                            AmbientModeHost(
+                                controller = ambientIdleController,
+                                allowed = currentRoute?.startsWith("player/") != true &&
+                                    autoNextOverlay == null &&
+                                    !isTrailerPlaying,
+                                onShown = { trailerPlayerPool.stop() }
+                            )
                         }
                     }
                 } 
@@ -1271,6 +1306,7 @@ open class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        ambientIdleController.dismiss()
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
         memberAccessRepository.refreshIfStale()
         lifecycleScope.launch {
@@ -1321,7 +1357,15 @@ open class MainActivity : ComponentActivity() {
     // and then immediately exiting the app).
     val longPressBackHeld = mutableStateOf(false)
 
+    private val ambientIdleController = AmbientIdleController()
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        ambientIdleController.onInteraction()
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (ambientIdleController.consumeKeyEvent(event)) return true
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (longPressBackHeld.value) {
                 if (event.action == KeyEvent.ACTION_UP) longPressBackHeld.value = false
@@ -1756,7 +1800,15 @@ private fun LegacySidebarButton(
         shape = CardDefaults.shape(shape = itemShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics {
+                    contentDescription = label
+                    role = Role.Tab
+                    this.selected = selected
+                }
+        ) {
         DrawerItemIcon(
             iconRes = iconRes,
             icon = icon,
@@ -2246,6 +2298,10 @@ private fun CollapsedSidebarPill(
         modifier = modifier
             .focusProperties { canFocus = false }
             .clickable(onClick = onExpand)
+            .semantics {
+                role = Role.Button
+                contentDescription = label
+            }
             .padding(horizontal = NuvioTheme.spacing.hairline, vertical = NuvioTheme.spacing.xxs),
         verticalAlignment = Alignment.CenterVertically
     ) {

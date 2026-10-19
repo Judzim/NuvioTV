@@ -388,10 +388,6 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setParallelNetworkEnabled(enabled)
     }
 
-    suspend fun setEnableHttp2(enabled: Boolean) {
-        playerSettingsDataStore.setEnableHttp2(enabled)
-    }
-
     suspend fun setAllowLargeTargetBuffer(enabled: Boolean) {
         playerSettingsDataStore.setAllowLargeTargetBuffer(enabled)
     }
@@ -510,6 +506,10 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
         playerSettingsDataStore.setStreamAutoPlayTimeoutSeconds(seconds)
+    }
+
+    suspend fun setPreloadNextEpisodeSources(enabled: Boolean) {
+        playerSettingsDataStore.setPreloadNextEpisodeSources(enabled)
     }
 
     suspend fun setStillWatchingEnabled(enabled: Boolean) {

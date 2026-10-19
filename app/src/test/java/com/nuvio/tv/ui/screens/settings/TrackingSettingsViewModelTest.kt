@@ -14,7 +14,6 @@ import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklAuthRepository
 import com.nuvio.tv.data.simkl.SimklAuthState
 import com.nuvio.tv.data.simkl.SimklRewatchMode
-import com.nuvio.tv.data.simkl.SimklRewatchNextUpMode
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import io.mockk.coEvery
 import io.mockk.every
@@ -62,7 +61,6 @@ class TrackingSettingsViewModelTest {
         val settings = mockk<TraktSettingsDataStore> {
             every { simklAnimeIdPreference } returns MutableStateFlow(SimklAnimeIdPreference.DEFAULT)
             every { simklRewatchMode } returns MutableStateFlow(SimklRewatchMode.Default)
-            every { simklRewatchNextUpMode } returns MutableStateFlow(SimklRewatchNextUpMode.Default)
             every { simklWatchedThresholdPercent } returns MutableStateFlow(
                 TraktSettingsDataStore.DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT
             )
@@ -92,15 +90,13 @@ class TrackingSettingsViewModelTest {
             connectedProviderIds = setOf(TrackingProviderId.SIMKL),
             simklPreferences = SimklTrackingPreferences(
                 animeIdPreference = SimklAnimeIdPreference.MAL,
-                rewatchMode = SimklRewatchMode.MANUAL,
-                rewatchNextUpMode = SimklRewatchNextUpMode.AFTER_TWO,
+                rewatchMode = SimklRewatchMode.SEMI_AUTOMATIC,
                 watchedThresholdPercent = 92
             )
         )
 
         assertEquals(SimklAnimeIdPreference.MAL, state.simklAnimeIdPreference)
-        assertEquals(SimklRewatchMode.MANUAL, state.simklRewatchMode)
-        assertEquals(SimklRewatchNextUpMode.AFTER_TWO, state.simklRewatchNextUpMode)
+        assertEquals(SimklRewatchMode.SEMI_AUTOMATIC, state.simklRewatchMode)
         assertEquals(92, state.simklWatchedThresholdPercent)
         assertTrue(state.isReady)
     }
@@ -117,7 +113,6 @@ class TrackingSettingsViewModelTest {
         // Off is the default on both platforms. A device that never opened this screen must not
         // start writing rewatch sessions into the account.
         assertEquals(SimklRewatchMode.OFF, state.simklRewatchMode)
-        assertEquals(SimklRewatchNextUpMode.ALWAYS, state.simklRewatchNextUpMode)
         assertEquals(
             TraktSettingsDataStore.DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT,
             state.simklWatchedThresholdPercent

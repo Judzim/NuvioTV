@@ -87,6 +87,31 @@ class SimklMutationService internal constructor(
         return receipt.result
     }
 
+    /**
+     * Moves a running rewatch session to `closed`, which is how a run is dropped.
+     *
+     * The transition is documented on Simkl's rewatches guide: the session keeps its watched
+     * episodes and can be resumed by another write, so dropping a run never loses history. Nothing
+     * is committed locally from the answer: what the account keeps is read back from the sessions by
+     * the caller, which is also what Continue Watching reads.
+     */
+    suspend fun closeRewatchSession(
+        media: TrackingMediaReference,
+        rewatchId: Long
+    ): Boolean {
+        require(media.hasResolvableIdentity) { "Simkl mutation requires a media ID or title for the item" }
+        val response = client.execute(
+            SimklApiRequest(
+                method = SimklHttpMethod.POST,
+                path = "/sync/history",
+                query = SIMKL_ALLOW_REWATCH_QUERY,
+                body = buildSimklRewatchCloseBody(media, rewatchId, json),
+                retryPolicy = SimklRetryPolicy.SYNC_WRITE
+            )
+        )
+        return response.status in 200..299 || response.isSoftSuccess
+    }
+
     suspend fun removeFromHistory(items: Collection<TrackingMediaReference>): TrackingMutationResult {
         val candidates = items.validated()
         if (candidates.isEmpty()) return TrackingMutationResult(attemptedCount = 0)
@@ -103,6 +128,14 @@ class SimklMutationService internal constructor(
         return receipt.result
     }
 
+    /**
+     * Reports one playback event to Simkl.
+     *
+     * The call carries [completionThresholdPercent] as `min_progress`, so the account judges the stop
+     * by the same number this client does: at or above it the item is marked watched, below it Simkl
+     * keeps a resumable pause, and a later start only completes the session it replaces once that
+     * session reached the number. There is no separate pause call for a low stop any more.
+     */
     internal suspend fun scrobble(
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent,
@@ -122,7 +155,10 @@ class SimklMutationService internal constructor(
                 SimklApiRequest(
                     method = SimklHttpMethod.POST,
                     path = "/scrobble/${action.wireValue}",
-                    query = if (recordRewatch) SIMKL_ALLOW_REWATCH_QUERY else emptyMap(),
+                    query = simklScrobbleQuery(
+                        completionThresholdPercent = completionThresholdPercent,
+                        recordRewatch = recordRewatch
+                    ),
                     body = buildSimklScrobbleBody(event, json),
                     retryPolicy = SimklRetryPolicy.NEVER,
                     scrobbleStopConflictIsSuccess = action == TrackingScrobbleAction.STOP

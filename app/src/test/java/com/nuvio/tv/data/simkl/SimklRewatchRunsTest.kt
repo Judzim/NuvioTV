@@ -8,19 +8,20 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * What the account's rewatch sessions are read as: which episodes form a run, which do not, and how a
- * write that Simkl answered with "already in the history" is recognised afterwards.
+ * What the account's rewatch sessions are read as: which session is read, which episodes form a run,
+ * and when the account is not read at all.
  */
 class SimklRewatchRunsTest {
 
     @Test
     fun `two consecutive rewatched episodes are a run`() {
         val runs = runsFor(
-            minimumRunEpisodes = 1,
+            offerRuns = true,
             rewatched = listOf(Marked(season = 2, episode = 6), Marked(season = 2, episode = 7, watchedAt = NEWER)),
         )
 
@@ -38,23 +39,29 @@ class SimklRewatchRunsTest {
     }
 
     @Test
-    fun `a gap is not a run`() {
+    fun `a gap does not join the chain, and the newest episode still runs`() {
+        // A skipped episode is its own chain, and the run is the chain the newest episode is in: a
+        // rewatch the user is in is always offered, the row does not wait for two in a row.
         val runs = runsFor(
-            minimumRunEpisodes = 2,
+            offerRuns = true,
             rewatched = listOf(Marked(season = 2, episode = 6), Marked(season = 2, episode = 9, watchedAt = NEWER)),
         )
 
-        assertTrue(runs.isEmpty())
+        val run = runs.single()
+        assertEquals(2, run.seasonNumber)
+        assertEquals(9, run.episodeNumber)
     }
 
     @Test
-    fun `a season boundary breaks the chain`() {
+    fun `a season boundary breaks the chain, and the newest episode still runs`() {
         val runs = runsFor(
-            minimumRunEpisodes = 2,
+            offerRuns = true,
             rewatched = listOf(Marked(season = 1, episode = 5), Marked(season = 2, episode = 1, watchedAt = NEWER)),
         )
 
-        assertTrue(runs.isEmpty())
+        val run = runs.single()
+        assertEquals(2, run.seasonNumber)
+        assertEquals(1, run.episodeNumber)
     }
 
     @Test
@@ -62,7 +69,7 @@ class SimklRewatchRunsTest {
         // An old pair from season 1 and a single, recent episode from season 3: the run follows the
         // recent episode even though the other chain is longer.
         val runs = runsFor(
-            minimumRunEpisodes = 1,
+            offerRuns = true,
             rewatched = listOf(
                 Marked(season = 1, episode = 1),
                 Marked(season = 1, episode = 2),
@@ -78,7 +85,7 @@ class SimklRewatchRunsTest {
     @Test
     fun `the last episode of the run is where the run stands`() {
         val runs = runsFor(
-            minimumRunEpisodes = 1,
+            offerRuns = true,
             rewatched = listOf(
                 Marked(season = 2, episode = 6, watchedAt = OLD),
                 Marked(season = 2, episode = 7, watchedAt = NEWER),
@@ -90,24 +97,69 @@ class SimklRewatchRunsTest {
     }
 
     @Test
-    fun `sessions of the same series are merged before the chain is built`() {
-        // Simkl splits a running rewatch into a new session once the same episode is rewatched, and the
-        // run continues across the split, so both rows have to be read together.
+    fun `several running rows of the same series are read together`() {
         val rows = listOf(
             rewatchRow(rewatched = listOf(Marked(season = 1, episode = 1)), isRewatch = true),
             rewatchRow(rewatched = listOf(Marked(season = 1, episode = 2, watchedAt = NEWER)), isRewatch = true),
         )
 
-        val runs = deriveSimklRewatchRuns(entries = rows, minimumRunEpisodes = 2)
+        val runs = deriveSimklRewatchRuns(entries = rows, offerRuns = true)
 
         assertEquals(1, runs.size)
         assertEquals(2, runs.single().episodeNumber)
     }
 
     @Test
-    fun `never reads no run at all`() {
+    fun `a session the account closed is not the run`() {
+        val rows = listOf(
+            rewatchRow(
+                rewatched = listOf(
+                    Marked(season = 1, episode = 1),
+                    Marked(season = 1, episode = 2, watchedAt = NEWER),
+                ),
+                isRewatch = true,
+                status = "closed",
+            ),
+        )
+
+        assertTrue(deriveSimklRewatchRuns(entries = rows, offerRuns = true).isEmpty())
+    }
+
+    @Test
+    fun `the running session decides, a closed one beside it is not read`() {
+        // Simkl closes the session and opens a fresh one when the same episode is rewatched days later,
+        // so the older row holds more episodes than the one the user is actually in. The row follows the
+        // running session, never the longer chain of the closed one.
+        val rows = listOf(
+            rewatchRow(
+                rewatched = listOf(
+                    Marked(season = 1, episode = 1),
+                    Marked(season = 1, episode = 2),
+                    Marked(season = 1, episode = 3),
+                    Marked(season = 1, episode = 4),
+                    Marked(season = 1, episode = 5, watchedAt = OLD),
+                ),
+                isRewatch = true,
+                status = "closed",
+            ),
+            rewatchRow(
+                rewatched = listOf(Marked(season = 1, episode = 1, watchedAt = NEWER)),
+                isRewatch = true,
+                status = "active",
+            ),
+        )
+
+        val run = deriveSimklRewatchRuns(entries = rows, offerRuns = true).single()
+
+        assertEquals(1, run.seasonNumber)
+        assertEquals(1, run.episodeNumber)
+        assertEquals(parseSimklUtcEpochMs(NEWER)!!, run.markedAtEpochMs)
+    }
+
+    @Test
+    fun `rewatches are not read while the user keeps them off`() {
         val runs = runsFor(
-            minimumRunEpisodes = SimklRewatchNextUpMode.NEVER.minimumRunEpisodes,
+            offerRuns = false,
             rewatched = listOf(
                 Marked(season = 2, episode = 5),
                 Marked(season = 2, episode = 6),
@@ -124,59 +176,113 @@ class SimklRewatchRunsTest {
             rewatchRow(rewatched = listOf(Marked(season = 2, episode = 6)), isRewatch = false),
         )
 
-        assertTrue(deriveSimklRewatchRuns(entries = rows, minimumRunEpisodes = 1).isEmpty())
+        assertTrue(deriveSimklRewatchRuns(entries = rows, offerRuns = true).isEmpty())
     }
 
     @Test
-    fun `the sessions answer whether they hold this exact episode`() {
+    fun `only the running rewatch sessions are kept from a read`() {
         val rows = listOf(
-            rewatchRow(rewatched = listOf(Marked(season = 2, episode = 6)), isRewatch = true),
-        )
-        val episode = TrackingMediaReference(
-            kind = TrackingMediaKind.SHOW,
-            title = "Dark",
-            ids = TrackingExternalIds(imdb = "tt5753856"),
-            episode = TrackingEpisode(season = 2, number = 6),
+            rewatchRow(rewatched = listOf(Marked(season = 1, episode = 1)), isRewatch = true),
+            // A session the user closed is a run they left, so it is not kept.
+            rewatchRow(rewatched = listOf(Marked(season = 1, episode = 2)), isRewatch = true, status = "closed"),
+            // And a canonical row is not a session either.
+            rewatchRow(rewatched = listOf(Marked(season = 1, episode = 3)), isRewatch = false),
         )
 
-        assertTrue(rows.holdsRewatchEpisode(episode))
-        assertFalse(rows.holdsRewatchEpisode(episode.copy(episode = TrackingEpisode(season = 2, number = 7))))
-        assertFalse(rows.holdsRewatchEpisode(episode.copy(ids = TrackingExternalIds(imdb = "tt0000000"))))
-        // A movie carries no coordinates, so no session can hold them.
-        assertFalse(rows.holdsRewatchEpisode(episode.copy(episode = null)))
-        // And a canonical row is not a session.
-        assertFalse(
-            listOf(rewatchRow(rewatched = listOf(Marked(season = 2, episode = 6)), isRewatch = false))
-                .holdsRewatchEpisode(episode),
+        val kept = rows.runningRewatchSessions()
+
+        assertEquals(1, kept.size)
+        assertEquals(1, kept.single().seasons.single().episodes.single().number)
+    }
+
+    @Test
+    fun `the running session tells which episodes a run has rewatched`() {
+        val rows = listOf(
+            rewatchRow(
+                rewatched = listOf(Marked(season = 2, episode = 6), Marked(season = 2, episode = 7, watchedAt = NEWER)),
+                isRewatch = true,
+            ),
+            // A session the user closed is not the run and marks nothing: its episode is not in the set.
+            rewatchRow(rewatched = listOf(Marked(season = 2, episode = 5)), isRewatch = true, status = "closed"),
+            // And a canonical row is not a session either.
+            rewatchRow(rewatched = listOf(Marked(season = 3, episode = 1)), isRewatch = false),
+        )
+        val contentId = rows.firstNotNullOf { row -> row.media?.canonicalContentId() }
+
+        assertEquals(setOf(2 to 6, 2 to 7), rows.rewatchedEpisodesOf(contentId))
+        // Another item has nothing of its own here.
+        assertTrue(rows.rewatchedEpisodesOf("imdb:tt0000000").isEmpty())
+    }
+
+    @Test
+    fun `the running session of the item is the one a write joins`() {
+        val sessions = listOf(
+            session(id = 41, status = "completed"),
+            session(id = 42, status = "closed"),
+            session(id = 43, status = " ACTIVE "),
+        )
+
+        // Only the active one is pinned: a finished or closed run is not what a new viewing joins.
+        assertEquals(43L, sessions.activeRewatchSessionId(episode()))
+    }
+
+    @Test
+    fun `a session that is not running, not this item or not a session is never joined`() {
+        val target = episode()
+
+        // Nothing is running, so the write goes without an id and the account opens the session.
+        assertNull(listOf(session(id = 44, status = "closed")).activeRewatchSessionId(target))
+        assertNull(listOf(session(id = 45, status = null)).activeRewatchSessionId(target))
+        // A session of another show belongs to that show.
+        assertNull(
+            listOf(session(id = 46, status = "active", ids = mapOf("imdb" to JsonPrimitive("tt0000001"))))
+                .activeRewatchSessionId(target)
+        )
+        // A canonical row carries no session, whatever else it holds.
+        assertNull(
+            listOf(rewatchRow(listOf(Marked(season = 2, episode = 7)), isRewatch = false))
+                .activeRewatchSessionId(target)
         )
     }
 
     @Test
-    fun `any session holding the coordinates is enough, whoever the show belongs to`() {
-        val rows = listOf(
-            rewatchRow(rewatched = listOf(Marked(season = 2, episode = 6)), isRewatch = true),
+    fun `a delta read replaces the sessions of the items it mentions and keeps the rest`() {
+        val other = session(id = 50, status = "active", ids = mapOf("simkl" to JsonPrimitive("39688")))
+        val stored = listOf(session(id = 1, status = "active"), other)
+
+        val merged = mergeRewatchSessions(
+            read = listOf(session(id = 2, status = "active")),
+            stored = stored,
         )
 
-        assertTrue(rows.holdsRewatchAt(seasonNumber = 2, episodeNumber = 6))
-        assertFalse(rows.holdsRewatchAt(seasonNumber = 2, episodeNumber = 7))
-        assertFalse(rows.holdsRewatchAt(seasonNumber = 3, episodeNumber = 6))
-        assertFalse(
-            listOf(rewatchRow(rewatched = listOf(Marked(season = 2, episode = 6)), isRewatch = false))
-                .holdsRewatchAt(seasonNumber = 2, episodeNumber = 6),
+        assertEquals(listOf(2L, 50L), merged.mapNotNull(SimklLibraryEntry::rewatchId))
+    }
+
+    @Test
+    fun `an item the read mentions without a running session loses its stored sessions`() {
+        val other = session(id = 50, status = "active", ids = mapOf("simkl" to JsonPrimitive("39688")))
+        val stored = listOf(session(id = 1, status = "active"), other)
+
+        val merged = mergeRewatchSessions(
+            read = listOf(rewatchRow(listOf(Marked(season = 2, episode = 7)), isRewatch = false)),
+            stored = stored,
         )
+
+        assertEquals(listOf(50L), merged.mapNotNull(SimklLibraryEntry::rewatchId))
     }
 
     private fun runsFor(
-        minimumRunEpisodes: Int?,
+        offerRuns: Boolean,
         rewatched: List<Marked>,
     ): List<RewatchRunPosition> = deriveSimklRewatchRuns(
         entries = listOf(rewatchRow(rewatched = rewatched, isRewatch = true)),
-        minimumRunEpisodes = minimumRunEpisodes,
+        offerRuns = offerRuns,
     )
 
     private fun rewatchRow(
         rewatched: List<Marked>,
         isRewatch: Boolean,
+        status: String? = "active",
     ): SimklLibraryEntry = SimklLibraryEntry(
         mediaType = SimklMediaType.SHOWS,
         status = SimklListStatus.COMPLETED,
@@ -200,6 +306,31 @@ class SimklRewatchRunsTest {
                 )
             },
         isRewatch = isRewatch,
+        rewatchStatus = status.takeIf { isRewatch },
+    )
+
+    /** One rewatch session of the account, as the read of it returns the row. */
+    private fun session(
+        id: Long?,
+        status: String?,
+        ids: Map<String, JsonPrimitive> = mapOf(
+            "simkl" to JsonPrimitive("39687"),
+            "imdb" to JsonPrimitive("tt5753856"),
+        ),
+    ): SimklLibraryEntry = rewatchRow(listOf(Marked(season = 2, episode = 7)), isRewatch = true)
+        .copy(
+            rewatchId = id,
+            rewatchStatus = status,
+            show = SimklMedia(title = "Dark", year = 2017, ids = ids),
+        )
+
+    /** The item the sessions are looked for: the same show, at the episode the sessions hold. */
+    private fun episode() = TrackingMediaReference(
+        kind = TrackingMediaKind.SHOW,
+        title = "Dark",
+        year = 2017,
+        ids = TrackingExternalIds(imdb = "tt5753856"),
+        episode = TrackingEpisode(season = 2, number = 7),
     )
 
     private data class Marked(

@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -110,6 +111,7 @@ private const val EPISODE_SCROLL_REPEAT_THROTTLE_MS = 80L
 private const val EPISODE_RESTORE_FALLBACK_MS = 250L
 private const val EPISODE_RESTORE_FOCUS_ATTEMPTS = 24
 private const val EPISODE_OVERLAY_PREFETCH_DELAY_MS = 120L
+private const val SEASON_EDGE_PIN_COUNT = 4
 
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -142,7 +144,10 @@ fun SeasonTabs(
     val tabTextStyle = remember(typography) { typography.titleMedium }
     val textSecondary = NuvioTheme.extendedColors.textSecondary
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val lazyListState = rememberLazyListState()
+    val initialSeasonIndex = remember(sortedSeasons, selectedSeason) {
+        (sortedSeasons.indexOf(selectedSeason) - (SEASON_EDGE_PIN_COUNT - 1)).coerceAtLeast(0)
+    }
+    val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialSeasonIndex)
 
     var suppressFocusSwitch by remember { mutableStateOf(false) }
     var lastAppliedSeason by remember { mutableStateOf(selectedSeason) }
@@ -168,22 +173,80 @@ fun SeasonTabs(
     LaunchedEffect(sortedSeasons, selectedSeason) {
         val selectedIndex = sortedSeasons.indexOf(selectedSeason)
         if (selectedIndex < 0) return@LaunchedEffect
-        val layoutInfo = snapshotFlow { lazyListState.layoutInfo }
-            .first { it.visibleItemsInfo.isNotEmpty() }
-        val visible = layoutInfo.visibleItemsInfo
-        if (visible.any { it.index == selectedIndex }) return@LaunchedEffect
-        val viewportSize = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
-        val approxItemSize = visible.lastOrNull()?.size
-            ?: visible.firstOrNull()?.size
-            ?: 0
-        val trailingOffset = -(viewportSize - approxItemSize).coerceAtLeast(0)
-        suppressFocusSwitch = true
-        if (selectedIndex > (visible.lastOrNull()?.index ?: -1)) {
-            lazyListState.scrollToItem(selectedIndex, scrollOffset = trailingOffset)
-        } else {
-            lazyListState.scrollToItem(selectedIndex)
+        val lastIndex = sortedSeasons.lastIndex
+        val pinToStart = selectedIndex < SEASON_EDGE_PIN_COUNT
+        val pinToEnd = selectedIndex > lastIndex - SEASON_EDGE_PIN_COUNT
+        var attempts = 0
+        while (attempts < 2) {
+            attempts++
+            val info = snapshotFlow { lazyListState.layoutInfo }
+                .first { it.visibleItemsInfo.isNotEmpty() }
+            val visible = info.visibleItemsInfo
+            val contentEnd = info.viewportEndOffset - info.afterContentPadding
+            if (pinToStart) {
+                if (lazyListState.firstVisibleItemIndex != 0 || lazyListState.firstVisibleItemScrollOffset != 0) {
+                    suppressFocusSwitch = true
+                    lazyListState.scrollToItem(0)
+                    suppressFocusSwitch = false
+                }
+                return@LaunchedEffect
+            }
+            if (pinToEnd) {
+                val lastItem = visible.firstOrNull { it.index == lastIndex }
+                if (lastItem == null) {
+                    suppressFocusSwitch = true
+                    lazyListState.scrollToItem(
+                        lastIndex,
+                        scrollOffset = -(contentEnd - visible.last().size).coerceAtLeast(0)
+                    )
+                    suppressFocusSwitch = false
+                    snapshotFlow { lazyListState.layoutInfo }
+                        .first { it.visibleItemsInfo.any { it.index == lastIndex } }
+                    continue
+                }
+                if (lastItem.offset + lastItem.size > contentEnd) {
+                    suppressFocusSwitch = true
+                    lazyListState.scrollToItem(
+                        lastIndex,
+                        scrollOffset = -(contentEnd - lastItem.size)
+                    )
+                    suppressFocusSwitch = false
+                }
+                return@LaunchedEffect
+            }
+            val item = visible.firstOrNull { it.index == selectedIndex }
+            if (item == null) {
+                suppressFocusSwitch = true
+                if (selectedIndex > visible.last().index) {
+                    lazyListState.scrollToItem(
+                        selectedIndex,
+                        scrollOffset = -(contentEnd - visible.last().size).coerceAtLeast(0)
+                    )
+                } else {
+                    lazyListState.scrollToItem(selectedIndex)
+                }
+                suppressFocusSwitch = false
+                snapshotFlow { lazyListState.layoutInfo }
+                    .first { it.visibleItemsInfo.any { it.index == selectedIndex } }
+                continue
+            }
+            when {
+                item.offset < 0 -> {
+                    suppressFocusSwitch = true
+                    lazyListState.scrollToItem(selectedIndex)
+                    suppressFocusSwitch = false
+                }
+                item.offset + item.size > contentEnd -> {
+                    suppressFocusSwitch = true
+                    lazyListState.scrollToItem(
+                        selectedIndex,
+                        scrollOffset = -(contentEnd - item.size)
+                    )
+                    suppressFocusSwitch = false
+                }
+            }
+            break
         }
-        suppressFocusSwitch = false
     }
 
     val restorerRequester = remember(lastFocusedSeason, selectedSeason, selectedTabFocusRequester) {
@@ -310,6 +373,7 @@ fun EpisodesRow(
     episodeProgressMap: Map<Pair<Int, Int>, com.nuvio.tv.domain.model.WatchProgress> = emptyMap(),
     episodeRatings: Map<Pair<Int, Int>, Double> = emptyMap(),
     watchedEpisodes: Set<Pair<Int, Int>> = emptySet(),
+    rewatchedEpisodes: Set<Pair<Int, Int>> = emptySet(),
     episodeWatchedPendingKeys: Set<String> = emptySet(),
     blurUnwatchedEpisodes: Boolean = false,
     episodeOptionsOverlayStyle: EpisodeOptionsOverlayStyle = EpisodeOptionsOverlayStyle.ARTWORK,
@@ -462,6 +526,7 @@ fun EpisodesRow(
             val progress = remember(seasonEp, episodeProgressMap) { seasonEp?.let { episodeProgressMap[it] } }
             val imdbRating = remember(seasonEp, episodeRatings) { seasonEp?.let { episodeRatings[it] } }
             val isMarkedWatched = remember(seasonEp, watchedEpisodes) { seasonEp?.let { watchedEpisodes.contains(it) } ?: false }
+            val isMarkedRewatched = remember(seasonEp, rewatchedEpisodes) { seasonEp?.let { rewatchedEpisodes.contains(it) } ?: false }
             val episodeFocusRequester = remember(episode.id) { episodeFocusRequesters.getOrPut(episode.id) { FocusRequester() } }
             val episodeOnClick = remember(episode, onEpisodeClick) { { onEpisodeClick(episode) } }
             val episodeOnLongPress = remember(episode.id) { { optionsEpisode = episode } }
@@ -475,6 +540,8 @@ fun EpisodesRow(
                 watchProgress = progress,
                 imdbRating = imdbRating,
                 isMarkedWatched = isMarkedWatched,
+                isMarkedRewatched = isMarkedRewatched,
+                rewatchInProgress = rewatchedEpisodes.isNotEmpty(),
                 blurUnwatched = blurUnwatchedEpisodes,
                 suppressMarquee = isOverlayOpen,
                 cardMetrics = cardMetrics,
@@ -522,6 +589,9 @@ fun EpisodesRow(
                 }
             } ?: false,
             onDismiss = { optionsEpisode = null },
+            onNavigateEpisode = { step ->
+                adjacentEpisode(dedupedEpisodes, selectedEpisode, step)?.let { optionsEpisode = it }
+            },
             isPlayEnabled = canPlayEpisode(selectedEpisode),
             onPlay = {
                 onEpisodeClick(selectedEpisode)
@@ -561,6 +631,16 @@ fun EpisodesRow(
     }
 }
 
+/**
+ * How solid the watched marker is on an episode a rewatch in progress has not reached yet.
+ *
+ * A value rather than a number in the drawing code, so the look can be tuned without touching the
+ * layout: the marker is the same one the app has always drawn, only faded while a run owns the
+ * meaning of a full one. The fade has to be deep enough to read as "not this run's yet" next to a
+ * solid marker on a TV at viewing distance, which 0.45 did not.
+ */
+private const val REWATCH_PENDING_MARKER_ALPHA = 0.35f
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun EpisodeCard(
@@ -568,6 +648,8 @@ private fun EpisodeCard(
     watchProgress: com.nuvio.tv.domain.model.WatchProgress? = null,
     imdbRating: Double? = null,
     isMarkedWatched: Boolean = false,
+    isMarkedRewatched: Boolean = false,
+    rewatchInProgress: Boolean = false,
     blurUnwatched: Boolean = false,
     suppressMarquee: Boolean = false,
     cardMetrics: EpisodeCardMetrics,
@@ -598,6 +680,16 @@ private fun EpisodeCard(
     val progressPercent = remember(watchProgress) { watchProgress?.progressPercentage ?: 0f }
     val showProgress = remember(watchProgress) { watchProgress?.isInProgress() == true }
     val showCompletedBadge = isWatched
+    /*
+     * A run in progress is what gives the marker two meanings: solid marks an episode the run has
+     * already rewatched, and half marks one the account watched before the run and the run has not
+     * reached yet. Without a run every watched episode keeps the solid marker it always had.
+     */
+    val rewatchMarkerAlpha = if (rewatchInProgress && isWatched && !isMarkedRewatched) {
+        REWATCH_PENDING_MARKER_ALPHA
+    } else {
+        1f
+    }
     val showNotStartedBadge = remember(showCompletedBadge, progressPercent) { !showCompletedBadge && progressPercent < 0.02f }
     val isUnavailable = remember(episode.available) { episode.available == false }
     val cardBgColor = NuvioTheme.colors.BackgroundCard
@@ -741,7 +833,7 @@ private fun EpisodeCard(
         episode.episode?.let { number -> "$prefix $number" } ?: prefix
     }
 
-    val primaryColor = NuvioTheme.colors.Primary
+    val primaryColor = NuvioTheme.colors.Secondary
     val textPrimary = NuvioTheme.colors.TextPrimary
     val focusRingBorder = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs)
     val cardShape = CardDefaults.shape(shape = shape)
@@ -1011,6 +1103,7 @@ private fun EpisodeCard(
                 WatchedMarker(
                     modifier = Modifier
                         .align(Alignment.TopStart)
+                        .alpha(rewatchMarkerAlpha)
                         .padding(
                             start = cardMetrics.statusBadgeInset,
                             top = cardMetrics.statusBadgeInset

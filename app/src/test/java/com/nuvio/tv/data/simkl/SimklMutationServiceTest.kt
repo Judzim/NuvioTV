@@ -250,6 +250,34 @@ class SimklMutationServiceTest {
     }
 
     @Test
+    fun `a scrobble tells Simkl where a stop becomes a watch`() = runBlocking {
+        val engine = RecordingEngine(
+            response(201, """{"action":"scrobble","progress":96}"""),
+            response(201, """{"action":"pause","progress":90,"rewatch_id":77,"rewatch_status":"active"}""")
+        )
+        val service = SimklMutationService(client(engine))
+
+        service.scrobble(
+            TrackingScrobbleAction.STOP,
+            TrackingScrobbleEvent(movie(), 96.0),
+            completionThresholdPercent = 96.0
+        )
+        service.scrobble(
+            TrackingScrobbleAction.STOP,
+            TrackingScrobbleEvent(movie(), 90.0),
+            recordRewatch = true,
+            completionThresholdPercent = 90.0
+        )
+
+        assertEquals(listOf("/scrobble/stop", "/scrobble/stop"), engine.paths)
+        assertTrue("min_progress=96" in engine.urls[0])
+        assertFalse("allow_rewatch" in engine.urls[0])
+        // The rewatch flag rides beside the threshold, and both are what the account reads.
+        assertTrue("min_progress=90" in engine.urls[1])
+        assertTrue("allow_rewatch=yes" in engine.urls[1])
+    }
+
+    @Test
     fun `invalid mutation identity fails before network access`() {
         val engine = RecordingEngine(response(200))
         val service = SimklMutationService(client(engine))
@@ -304,6 +332,7 @@ class SimklMutationServiceTest {
     private class RecordingEngine(vararg responses: SimklRawHttpResponse) : SimklHttpEngine {
         private val queued = responses.toMutableList()
         val paths = mutableListOf<String>()
+        val urls = mutableListOf<String>()
 
         override suspend fun execute(
             method: String,
@@ -311,6 +340,7 @@ class SimklMutationServiceTest {
             headers: Map<String, String>,
             body: String
         ): SimklRawHttpResponse {
+            urls += url
             paths += url.substringAfter("api.simkl.com").substringBefore('?')
             return queued.removeAt(0)
         }

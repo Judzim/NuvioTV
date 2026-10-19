@@ -11,29 +11,29 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
  * all. The sessions are the only place that knows where the run is, and they live on the account, so
  * a run read from here shows up on every device the user signs in on.
  *
- * Sessions are merged per series first, because Simkl splits a running rewatch into a new session
- * once the same episode is rewatched 48 hours later; the run itself continues across the split.
+ * Only the session the account still reports as running is read. Simkl closes a session and opens a
+ * fresh one once the same episode is rewatched days later, and a closed or finished one is a run the
+ * user left, so reading the sessions together would put the row back on a position the user is not in.
  * Episodes then have to form a chain of consecutive numbers inside one season, and the chain holding
- * the most recently rewatched episode is the run. How long that chain has to be is the user's
- * choice; see [SimklRewatchNextUpMode].
+ * the most recently rewatched episode is the run. A run the user is in is always offered; the mode
+ * decides whether the account is asked about rewatches at all (see [SimklRewatchMode]).
  *
- * Difference from mobile: mobile takes `animeIdPreference` and groups through
- * `canonicalContentId(preference)`. The TV `SimklMedia.canonicalContentId()` takes no parameter and
- * keeps the anime preference in `SimklAnimeIdPreferenceHolder`, so grouping on `contentId` goes
- * through it and the preference shows up only in the rest of the pipeline.
+ * TV groups on `contentId`, which reads the anime preference from `SimklAnimeIdPreferenceHolder`.
  */
 internal fun deriveSimklRewatchRuns(
     entries: List<SimklLibraryEntry>,
-    minimumRunEpisodes: Int?,
+    offerRuns: Boolean,
 ): List<RewatchRunPosition> {
-    val requiredEpisodes = minimumRunEpisodes ?: return emptyList()
-    val sessions = entries.filter { entry -> entry.isRewatch && entry.media != null }
+    if (!offerRuns) return emptyList()
+    val sessions = entries.filter { entry ->
+        entry.isRewatch && entry.media != null && entry.isRunningRewatchSession()
+    }
     if (sessions.isEmpty()) return emptyList()
     return sessions
         .groupBy { entry -> entry.media?.canonicalContentId().orEmpty() }
         .filterKeys { contentId -> contentId.isNotEmpty() }
         .mapNotNull { (contentId, rows) ->
-            buildRewatchRun(contentId, rows, requiredEpisodes)
+            buildRewatchRun(contentId, rows)
         }
         .sortedByDescending(RewatchRunPosition::markedAtEpochMs)
 }
@@ -42,7 +42,7 @@ internal fun deriveSimklRewatchRuns(
  * What one read of the rewatch sessions produced: the runs the app offers and the sessions they were
  * derived from.
  *
- * The sessions are kept on the snapshot next to the runs, so a change of [SimklRewatchNextUpMode] can
+ * The sessions are kept on the snapshot next to the runs, so a change of [SimklRewatchMode] can
  * re-derive the runs straight away instead of waiting for the next read of the account.
  */
 internal data class SimklRewatchRead(
@@ -53,7 +53,6 @@ internal data class SimklRewatchRead(
 private fun buildRewatchRun(
     contentId: String,
     rows: List<SimklLibraryEntry>,
-    minimumRunEpisodes: Int,
 ): RewatchRunPosition? {
     val episodes = rows
         .flatMap { row -> row.rewatchedEpisodes() }
@@ -69,7 +68,6 @@ private fun buildRewatchRun(
     val chain = consecutiveChains(episodes)
         .firstOrNull { candidate -> candidate.any { it.isSameEpisodeAs(newest) } }
         ?: return null
-    if (chain.size < minimumRunEpisodes) return null
     val position = chain.maxBy { episode -> episode.episodeNumber }
     return RewatchRunPosition(
         contentId = contentId,
@@ -131,41 +129,82 @@ private fun consecutiveChains(episodes: List<RewatchedEpisode>): List<List<Rewat
         }
 
 /**
- * True when the account's rewatch sessions hold this exact episode.
+ * The rows of a read that are rewatch sessions, kept for the snapshot and the derivation.
  *
- * A write to `/sync/history` answers `not_found` for an episode that is already in the history, even
- * when Simkl opened a rewatch session for it, so the write receipt says "nothing was added" for a
- * rewatch that landed. The sessions are the only honest answer, and they are what Continue Watching
- * reads as well.
+ * A session the account still reports as running is the run the user is in; a closed or finished one
+ * is a run they left, and a canonical row is not a session at all. Storing only this subset keeps the
+ * whole show library out of the snapshot while every reader keeps working, since each one already
+ * filters to exactly these rows.
  */
-internal fun List<SimklLibraryEntry>.holdsRewatchEpisode(media: TrackingMediaReference): Boolean {
-    val episode = media.episode ?: return false
-    val target = media.toSimklMedia()
-    return any { entry ->
-        entry.isRewatch &&
-            entry.media?.matchesTarget(target) == true &&
-            entry.rewatchedEpisodes().any { rewatched ->
-                rewatched.seasonNumber == episode.season && rewatched.episodeNumber == episode.number
-            }
-    }
+internal fun List<SimklLibraryEntry>.runningRewatchSessions(): List<SimklLibraryEntry> =
+    filter { entry -> entry.isRewatch && entry.isRunningRewatchSession() }
+
+/**
+ * Merges a rewatch-session read into the sessions the snapshot already holds.
+ *
+ * Outside the initial sync the read is paired with the sync watermark, so it carries the rows of the
+ * items that changed since it, and nothing at all for the items that did not. The rows of a changed
+ * item replace what was stored for that item: a session the account closed elsewhere leaves the
+ * stored set here, a new one joins it. Items the read did not mention keep their stored sessions.
+ * Only running sessions are kept, the same filter a full read goes through.
+ */
+internal fun mergeRewatchSessions(
+    read: List<SimklLibraryEntry>,
+    stored: List<SimklLibraryEntry>
+): List<SimklLibraryEntry> {
+    val changedKeys = read.mapNotNull(SimklLibraryEntry::stableKey).toSet()
+    val kept = stored.filterNot { entry -> entry.stableKey() in changedKeys }
+    return (kept + read.runningRewatchSessions())
+        .sortedWith(compareBy({ entry -> entry.stableKey().orEmpty() }, { entry -> entry.rewatchId ?: 0L }))
 }
 
 /**
- * True when any session holds a rewatch at this season and episode, whoever the show belongs to.
+ * The episodes the running session of the item holds: what a rewatch in progress has covered so far.
  *
- * Used only to tell a write that errored but landed from one that did not. Identifying the show is
- * besides the point there: the coordinates come from the episode just written, and the account only
- * holds what the user put there.
+ * The detail screen draws the same marker on every episode the account watched, so a run needs its
+ * own set to tell an episode it has already rewatched from one it has not reached yet. Only the
+ * session the account still reports as running is read, the same rule the run itself is read with,
+ * and the item is the one the run was read for: the content id a [RewatchRunPosition] carries.
  */
-internal fun List<SimklLibraryEntry>.holdsRewatchAt(
-    seasonNumber: Int,
-    episodeNumber: Int,
-): Boolean = any { entry ->
-    entry.isRewatch &&
-        entry.rewatchedEpisodes().any { rewatched ->
-            rewatched.seasonNumber == seasonNumber && rewatched.episodeNumber == episodeNumber
-        }
+internal fun List<SimklLibraryEntry>.rewatchedEpisodesOf(contentId: String): Set<Pair<Int, Int>> =
+    filter { entry ->
+        entry.isRewatch &&
+            entry.isRunningRewatchSession() &&
+            entry.media?.canonicalContentId() == contentId
+    }
+        .flatMap(SimklLibraryEntry::rewatchedEpisodes)
+        .map { episode -> episode.seasonNumber to episode.episodeNumber }
+        .toSet()
+
+/**
+ * The session a repeat viewing of this item joins, when the account already has one running.
+ *
+ * Simkl asks a client to pin the session on every write after the one that opened it, so the write
+ * lands in the run the user is in instead of in whichever session the account would have picked. Only
+ * a session the account still reports as `active` can be pinned: a closed or finished one is a run the
+ * user ended, and a new viewing must not be written into it.
+ *
+ * The sessions are the ones the last read of the account left. A session a write has opened but the
+ * read has not published yet is simply not pinned, and the account resolves that write on its own,
+ * which is what the client sends today.
+ */
+internal fun List<SimklLibraryEntry>.activeRewatchSessionId(media: TrackingMediaReference): Long? {
+    val target = media.toSimklMedia()
+    return filter { entry ->
+        entry.isRewatch &&
+            entry.media?.matchesTarget(target) == true &&
+            entry.isRunningRewatchSession()
+    }
+        .maxByOrNull { entry -> entry.lastWatchedAt?.let(::parseSimklUtcEpochMs) ?: Long.MIN_VALUE }
+        ?.rewatchId
 }
+
+/** The state Simkl reports for the session a run continues in; only that one is ever pinned. */
+private const val ACTIVE_REWATCH_STATUS = "active"
+
+/** True when the account reports this row as the session still running for its item. */
+internal fun SimklLibraryEntry.isRunningRewatchSession(): Boolean =
+    rewatchStatus?.trim()?.equals(ACTIVE_REWATCH_STATUS, ignoreCase = true) == true
 
 internal fun SimklMedia.rewatchMatchKeys(contentId: String): List<String> = buildList {
     add(contentId)
