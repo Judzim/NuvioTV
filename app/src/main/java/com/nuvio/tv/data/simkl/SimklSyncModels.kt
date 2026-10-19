@@ -198,6 +198,11 @@ data class SimklSyncSnapshot(
      * re-derive them without another read of the account.
      */
     val rewatchSessions: List<SimklLibraryEntry> = emptyList(),
+    /**
+     * Whether [rewatchSessions] were read without the watermark, so a later read may take the delta.
+     * A snapshot saved before this field existed carries the default and gets one full read.
+     */
+    val rewatchSessionsComplete: Boolean = false,
     val lastSyncedAtEpochMs: Long? = null,
     val lastCheckedAtEpochMs: Long? = null
 )

@@ -48,6 +48,14 @@ internal fun deriveSimklRewatchRuns(
 internal data class SimklRewatchRead(
     val runs: List<RewatchRunPosition>,
     val sessions: List<SimklLibraryEntry>,
+    /**
+     * Whether the read covered every session the account holds.
+     *
+     * False means the next sync must read without the watermark: the sessions were never read (a
+     * snapshot from before the feature kept none), or the read was skipped because the mode or the
+     * plan did not allow one. True means a later read may pair the watermark and take the delta.
+     */
+    val sessionsComplete: Boolean = false,
 )
 
 private fun buildRewatchRun(

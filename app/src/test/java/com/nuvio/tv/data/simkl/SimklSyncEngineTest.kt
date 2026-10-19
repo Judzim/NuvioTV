@@ -779,6 +779,47 @@ class SimklSyncEngineTest {
         assertTrue(restored.rewatchSessions.isEmpty())
     }
 
+    @Test
+    fun `a snapshot whose sessions were never read completes them without waiting for an activity`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.AUTOMATIC)
+        val current = SimklSyncSnapshot(
+            isInitialized = true,
+            watermark = "v1",
+            activities = activities(all = "v1", library = "l1", playback = "p1"),
+            entries = listOf(entry(SimklMediaType.SHOWS, "1"))
+        )
+        val remote = ScriptedRemote(
+            Step.Activities(activities(all = "v1", library = "l1", playback = "p1")),
+            Step.RewatchSessions(emptyList())
+        )
+
+        val result = engine(remote, { 0L }).synchronize(current)
+
+        assertEquals(1, remote.rewatchSessionReads)
+        assertEquals(listOf<String?>(null), remote.rewatchDateFrom)
+        assertTrue(result.rewatchSessionsComplete)
+    }
+
+    @Test
+    fun `a complete snapshot takes the delta on the next changed sync`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.AUTOMATIC)
+        val current = SimklSyncSnapshot(
+            isInitialized = true,
+            watermark = "v1",
+            activities = activities(all = "v1", library = "l1", playback = "p1"),
+            entries = listOf(entry(SimklMediaType.SHOWS, "1")),
+            rewatchSessionsComplete = true
+        )
+        val remote = ScriptedRemote(
+            Step.Activities(activities(all = "v2", library = "l1", playback = "p1")),
+            Step.RewatchSessions(emptyList())
+        )
+
+        engine(remote, { 0L }).synchronize(current)
+
+        assertEquals(listOf<String?>("v1"), remote.rewatchDateFrom)
+    }
+
     private sealed interface Step {
         data class Activities(val value: SimklActivities) : Step
         data class AllItems(val type: SimklMediaType?, val value: SimklAllItemsResponse) : Step
@@ -792,6 +833,7 @@ class SimklSyncEngineTest {
         val allItemsRequests = mutableListOf<SimklAllItemsRequest>()
         var rewatchSessionReads = 0
             private set
+        val rewatchDateFrom = mutableListOf<String?>()
         val isExhausted: Boolean get() = remaining.isEmpty()
 
         override suspend fun fetchActivities(): SimklActivities = when (val step = next()) {
@@ -826,6 +868,7 @@ class SimklSyncEngineTest {
          */
         override suspend fun fetchRewatchSessions(dateFrom: String?): List<SimklLibraryEntry> {
             rewatchSessionReads += 1
+            rewatchDateFrom += dateFrom
             return when (val step = remaining.firstOrNull()) {
                 is Step.RewatchSessions -> {
                     remaining.removeAt(0)

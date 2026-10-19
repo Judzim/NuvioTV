@@ -182,25 +182,28 @@ class SimklSyncRepository @Inject constructor(
             // watermark): it carries the changed items only, so merging it keeps the sessions of the
             // items it did not mention. A full read merges the same way: it mentions every item, which
             // makes the read the whole set again.
-            val merged = mergeRewatchSessions(
-                read = sessions,
-                stored = _state.value.snapshot.rewatchSessions
-            )
-            val runs = runCatching {
-                deriveSimklRewatchRuns(
-                    entries = merged,
-                    offerRuns = offersSimklRewatchRuns()
-                )
-            }.getOrElse { error ->
-                Log.w(TAG, "Could not read the runs out of the rewatch sessions", error)
-                return@withContext
-            }
             ensureLoaded()
             val profileId = profileManager.activeProfileId.value
             val generation = profileGeneration
             snapshotMutex.withLock {
                 if (!isCurrent(profileId, generation)) return@withLock
                 val current = _state.value
+                // The delta is merged against the snapshot inside the lock: a sync that landed
+                // between the caller's read and this write must not be overwritten with what the
+                // snapshot held before it.
+                val merged = mergeRewatchSessions(
+                    read = sessions,
+                    stored = current.snapshot.rewatchSessions
+                )
+                val runs = runCatching {
+                    deriveSimklRewatchRuns(
+                        entries = merged,
+                        offerRuns = offersSimklRewatchRuns()
+                    )
+                }.getOrElse { error ->
+                    Log.w(TAG, "Could not read the runs out of the rewatch sessions", error)
+                    return@withLock
+                }
                 if (
                     current.snapshot.rewatchRuns == runs &&
                     current.snapshot.rewatchSessions == merged

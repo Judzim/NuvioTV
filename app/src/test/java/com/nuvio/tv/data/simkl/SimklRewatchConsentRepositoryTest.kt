@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingEpisode
 import com.nuvio.tv.core.tracking.TrackingExternalIds
 import com.nuvio.tv.core.tracking.TrackingMediaKind
@@ -7,6 +8,9 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,7 +24,26 @@ import org.junit.Test
  */
 class SimklRewatchConsentRepositoryTest {
 
-    private val repository = SimklRewatchConsentRepository()
+    private val activeProfile = MutableStateFlow(1)
+    private val repository = SimklRewatchConsentRepository(
+        mockk<ProfileManager> {
+            every { activeProfileId } returns activeProfile
+        }
+    )
+
+    @Test
+    fun `a profile switch drops what the previous profile answered`() {
+        repository.ask(dark(7))
+        repository.grant()
+        assertTrue(repository.grantedFor(dark(7)))
+
+        activeProfile.value = 2
+
+        // The yes belonged to the account of profile 1; profile 2 is asked on its own.
+        assertFalse(repository.grantedFor(dark(7)))
+        repository.ask(dark(7))
+        assertEquals(7, repository.question.value?.media?.episode?.number)
+    }
 
     @Test
     fun `no question is open until one is asked`() {
