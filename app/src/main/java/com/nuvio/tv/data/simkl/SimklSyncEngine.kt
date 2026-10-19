@@ -21,7 +21,14 @@ class SimklSyncEngine internal constructor(
         if (!current.isInitialized) return initialSync()
 
         val activities = remote.fetchActivities()
-        if (activities.all == current.watermark) {
+        // A snapshot whose sessions were never read is completed even when nothing else changed:
+        // this is the first sync after the feature was turned on, or after the app update that
+        // introduced it, and the run row must not wait for the next activity to fill in.
+        val needsRewatchRead = activities.all == current.watermark &&
+            !current.rewatchSessionsComplete &&
+            settingsDataStore.simklRewatchMode.first() != SimklRewatchMode.OFF &&
+            isSimklRewatchPlanEligible(authStorage.state.value.accountType)
+        if (activities.all == current.watermark && !needsRewatchRead) {
             return current.copy(
                 activities = activities,
                 lastCheckedAtEpochMs = nowEpochMs()
@@ -54,6 +61,7 @@ class SimklSyncEngine internal constructor(
             playback = playback,
             rewatchRuns = rewatch.runs,
             rewatchSessions = rewatch.sessions,
+            rewatchSessionsComplete = rewatch.sessionsComplete,
             lastSyncedAtEpochMs = now,
             lastCheckedAtEpochMs = now
         ).reconcileWatchedPlayback()
@@ -77,6 +85,7 @@ class SimklSyncEngine internal constructor(
             playback = playback,
             rewatchRuns = rewatch.runs,
             rewatchSessions = rewatch.sessions,
+            rewatchSessionsComplete = rewatch.sessionsComplete,
             lastSyncedAtEpochMs = now,
             lastCheckedAtEpochMs = now
         ).reconcileWatchedPlayback()
@@ -99,11 +108,16 @@ class SimklSyncEngine internal constructor(
         if (mode == SimklRewatchMode.OFF || !isSimklRewatchPlanEligible(accountType)) {
             val knownToHoldNoSessions = mode == SimklRewatchMode.OFF || accountType != null
             return if (knownToHoldNoSessions) {
-                SimklRewatchRead(runs = emptyList(), sessions = emptyList())
+                SimklRewatchRead(
+                    runs = emptyList(),
+                    sessions = emptyList(),
+                    sessionsComplete = false
+                )
             } else {
                 SimklRewatchRead(
                     runs = current?.rewatchRuns.orEmpty(),
-                    sessions = current?.rewatchSessions.orEmpty()
+                    sessions = current?.rewatchSessions.orEmpty(),
+                    sessionsComplete = current?.rewatchSessionsComplete ?: false
                 )
             }
         }
@@ -111,7 +125,12 @@ class SimklSyncEngine internal constructor(
         // server answers with the changed slice instead of the whole library. That slice mentions only
         // the items that changed, and the runs need every session the account holds, so it is merged
         // into the sessions already on the snapshot.
-        val dateFrom = current?.watermark
+        // The watermark is only paired once the stored sessions are known to be the whole set. A
+        // cold read is the feature's own initial pull, and it is the one read the guide allows to go
+        // without date_from; the flag makes it happen once, not on every sync.
+        val dateFrom = current
+            ?.takeIf { snapshot -> snapshot.rewatchSessionsComplete }
+            ?.watermark
         return runCatching {
             val sessions = mergeRewatchSessions(
                 read = remote.fetchRewatchSessions(dateFrom = dateFrom),
@@ -122,12 +141,14 @@ class SimklSyncEngine internal constructor(
                     entries = sessions,
                     offerRuns = true
                 ),
-                sessions = sessions
+                sessions = sessions,
+                sessionsComplete = true
             )
         }.getOrElse {
             SimklRewatchRead(
                 runs = current?.rewatchRuns.orEmpty(),
-                sessions = current?.rewatchSessions.orEmpty()
+                sessions = current?.rewatchSessions.orEmpty(),
+                sessionsComplete = current?.rewatchSessionsComplete ?: false
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,7 +28,9 @@ data class RewatchQuestion(val media: TrackingMediaReference)
  * `@Singleton`, which is what the overlay in the activity reads its question from.
  */
 @Singleton
-class SimklRewatchConsentRepository @Inject constructor() {
+class SimklRewatchConsentRepository @Inject constructor(
+    private val profileManager: ProfileManager,
+) {
     /**
      * The answers are written from the UI and read from the scrobbler on IO, so every access goes
      * through this lock and the series keys are kept as sets: a decision about one series must not
@@ -52,12 +55,42 @@ class SimklRewatchConsentRepository @Inject constructor() {
     private val _question = MutableStateFlow<RewatchQuestion?>(null)
     val question: StateFlow<RewatchQuestion?> = _question.asStateFlow()
 
+    /** The profile the answers belong to; another profile starts with no answers. */
+    private var answersProfileId: Int? = null
+
+    /**
+     * Drops every answer when the active profile changed since the last one. The answers are about
+     * the account the user was asked against, and another profile's account must inherit neither a
+     * yes nor a no.
+     */
+    private fun ensureProfile() {
+        val profileId = profileManager.activeProfileId.value
+        synchronized(lock) {
+            val previous = answersProfileId
+            answersProfileId = profileId
+            if (previous != null && previous != profileId) clearLocked()
+        }
+    }
+
+    /** Drops every answer. Used when the account is disconnected. */
+    fun clear() {
+        synchronized(lock) { clearLocked() }
+    }
+
+    private fun clearLocked() {
+        grantedSeriesKeys.clear()
+        declinedSeriesKeys.clear()
+        dismissedSeriesKeys.clear()
+        _question.value = null
+    }
+
     /**
      * Raises the question for a playback that is about to start, unless the user has already said
      * something about this series: an answer of either kind stands for the whole app run, so the
      * same series is never asked about twice.
      */
     fun ask(media: TrackingMediaReference) {
+        ensureProfile()
         val seriesKey = media.seriesKey()
         val answered = synchronized(lock) {
             seriesKey in grantedSeriesKeys || seriesKey in declinedSeriesKeys || seriesKey in dismissedSeriesKeys
@@ -69,6 +102,7 @@ class SimklRewatchConsentRepository @Inject constructor() {
 
     /** The user said yes: the series may be written into a run until the account has one. */
     fun grant() {
+        ensureProfile()
         val question = _question.value ?: return
         _question.value = null
         synchronized(lock) { grantedSeriesKeys += question.media.seriesKey() }
@@ -76,6 +110,7 @@ class SimklRewatchConsentRepository @Inject constructor() {
 
     /** The user said no: the series stays out of the account for the rest of this app run. */
     fun decline() {
+        ensureProfile()
         val question = _question.value ?: return
         _question.value = null
         synchronized(lock) { declinedSeriesKeys += question.media.seriesKey() }
@@ -86,6 +121,7 @@ class SimklRewatchConsentRepository @Inject constructor() {
      * raised it, so a pause and its resume do not ask again; it is cleared when that playback stops.
      */
     fun dismiss() {
+        ensureProfile()
         val question = _question.value ?: return
         _question.value = null
         synchronized(lock) { dismissedSeriesKeys += question.media.seriesKey() }
@@ -93,12 +129,14 @@ class SimklRewatchConsentRepository @Inject constructor() {
 
     /** The playback that raised the dismissed question has ended, so the series may ask again. */
     fun clearDismissal(media: TrackingMediaReference) {
+        ensureProfile()
         val seriesKey = media.seriesKey()
         synchronized(lock) { dismissedSeriesKeys -= seriesKey }
     }
 
     /** True when a yes of this app run covers the media's series and no session has replaced it. */
     fun grantedFor(media: TrackingMediaReference): Boolean {
+        ensureProfile()
         val seriesKey = media.seriesKey()
         return synchronized(lock) { seriesKey in grantedSeriesKeys }
     }
@@ -108,6 +146,7 @@ class SimklRewatchConsentRepository @Inject constructor() {
      * run of the series asks again.
      */
     fun releaseGrant(media: TrackingMediaReference) {
+        ensureProfile()
         val seriesKey = media.seriesKey()
         synchronized(lock) { grantedSeriesKeys -= seriesKey }
     }

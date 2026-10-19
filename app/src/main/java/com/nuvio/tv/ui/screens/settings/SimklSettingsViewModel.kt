@@ -154,9 +154,10 @@ class SimklSettingsViewModel @Inject constructor(
     fun onDisconnect() {
         viewModelScope.launch {
             pollJob?.cancel()
-            // The rewatch question must not survive signing out: the overlay would stay on screen and
-            // a confirmation would then write to an account that is no longer connected.
-            rewatchConsentRepository.dismiss()
+            // The answers and the question must not survive signing out: the overlay would stay on
+            // screen, and a confirmation or an earlier yes would then write to an account that is no
+            // longer connected.
+            rewatchConsentRepository.clear()
             authRepository.disconnect()
             syncRepository.clearCurrentProfile()
             _uiState.update {
