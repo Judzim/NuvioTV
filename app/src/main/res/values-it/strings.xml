@@ -3195,7 +3195,7 @@
     <string name="playback_section_stream_selection_desc">Come viene scelto un flusso quando premi Riproduci.</string>
     <string name="playback_section_up_next">In arrivo</string>
     <string name="playback_section_up_next_desc">Riproduzione automatica dell\'episodio successivo e suggerimenti al termine della visione.</string>
-    <string name="playback_section_skip">SALTA SEGMENTI</string>
+    <string name="playback_section_skip">Salta segmenti</string>
     <string name="playback_section_skip_desc">Salta sigle iniziali, riepiloghi e titoli di coda.</string>
     <string name="playback_section_interface">Interfaccia del lettore</string>
     <string name="playback_section_interface_desc">Sovrapposizioni, orologio e dettagli mostrati durante la riproduzione.</string>
@@ -3374,4 +3374,6 @@
     <string name="autosync_toast_failed_no_reference">Sincronizzazione non riuscita: questo video non contiene sottotitoli incorporati da confrontare.</string>
     <string name="autosync_toast_failed_unsupported">Sincronizzazione non riuscita: Auto Sync non supporta questo formato di sottotitoli.</string>
     <string name="autosync_label_synced">Sincronizzato automaticamente</string>
+    <string name="stream_resume_from_time">Riprendi da %1$s</string>
+    <string name="stream_resume_from_percent">Riprendi dal %1$d%%</string>
 </resources>
