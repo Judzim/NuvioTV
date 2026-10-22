@@ -821,6 +821,37 @@ class SimklSyncEngineTest {
         assertEquals(listOf<String?>("v1"), remote.rewatchDateFrom)
     }
 
+    @Test
+    fun `a sync that only moved movies does not read the rewatch sessions`() = runBlocking {
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.AUTOMATIC)
+        val before = activities(all = "v1", library = "l1", playback = "p1")
+        val current = SimklSyncSnapshot(
+            isInitialized = true,
+            watermark = "v1",
+            activities = before,
+            entries = listOf(entry(SimklMediaType.SHOWS, "1")),
+            rewatchSessionsComplete = true
+        )
+        val remote = ScriptedRemote(
+            Step.Activities(
+                activities(all = "v2", library = "l1", playback = "p1").copy(
+                    tvShows = before.tvShows,
+                    anime = before.anime,
+                    movies = before.movies.copy(playback = "p2")
+                )
+            ),
+            Step.Playback(emptyList())
+        )
+
+        val result = engine(remote, { 0L }).synchronize(current)
+
+        // Only the movie playback moved, and a rewatch session cannot change with it, so the read
+        // is skipped and the slot stays for a sync that can move one.
+        assertEquals(0, remote.rewatchSessionReads)
+        assertTrue(result.rewatchSessionsComplete)
+        assertTrue(remote.isExhausted)
+    }
+
     private sealed interface Step {
         data class Activities(val value: SimklActivities) : Step
         data class AllItems(val type: SimklMediaType?, val value: SimklAllItemsResponse) : Step

@@ -53,7 +53,24 @@ class SimklSyncEngine internal constructor(
             current.playback
         }
         val now = nowEpochMs()
-        val rewatch = readRewatchRuns(current)
+        /*
+         * A rewatch session is opened or closed by a watch of a show or an anime, so a sync whose
+         * only changes sit in the movie or playback domains cannot have moved one. Keeping the
+         * stored sessions saves the rate-limit slot the read would spend.
+         */
+        val rewatch = if (
+            needsRewatchRead ||
+            !current.rewatchSessionsComplete ||
+            hasRewatchActivityChanged(current.activities, activities)
+        ) {
+            readRewatchRuns(current)
+        } else {
+            SimklRewatchRead(
+                runs = current.rewatchRuns,
+                sessions = current.rewatchSessions,
+                sessionsComplete = current.rewatchSessionsComplete
+            )
+        }
         return current.copy(
             watermark = activities.all,
             activities = activities,
@@ -219,6 +236,12 @@ private fun hasPlaybackActivityChanged(previous: SimklActivities?, current: Simk
     SimklMediaType.entries.any { type ->
         previous.domain(type).playback != current.domain(type).playback
     }
+
+/** Whether the domains a rewatch session can move with changed. */
+private fun hasRewatchActivityChanged(previous: SimklActivities?, current: SimklActivities): Boolean {
+    if (previous == null) return true
+    return previous.tvShows != current.tvShows || previous.anime != current.anime
+}
 
 private val simklEntryComparator = compareBy<SimklLibraryEntry>(
     { entry -> entry.mediaType.ordinal },
