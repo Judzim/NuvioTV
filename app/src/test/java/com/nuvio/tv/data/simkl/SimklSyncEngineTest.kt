@@ -609,6 +609,7 @@ class SimklSyncEngineTest {
         assertEquals(listOf(previousRun), result.rewatchRuns)
         assertEquals(listOf(previousSession), result.rewatchSessions)
         assertEquals("v2", result.watermark)
+        assertFalse(result.rewatchSessionsComplete)
         assertTrue(remote.isExhausted)
     }
 

@@ -145,10 +145,13 @@ class SimklSyncEngine internal constructor(
                 sessionsComplete = true
             )
         }.getOrElse {
+            // The window the read failed on was never read, and the sync still advances the
+            // watermark, so the flag has to force one cold read instead of letting the next delta
+            // skip that window for good.
             SimklRewatchRead(
                 runs = current?.rewatchRuns.orEmpty(),
                 sessions = current?.rewatchSessions.orEmpty(),
-                sessionsComplete = current?.rewatchSessionsComplete ?: false
+                sessionsComplete = false
             )
         }
     }
