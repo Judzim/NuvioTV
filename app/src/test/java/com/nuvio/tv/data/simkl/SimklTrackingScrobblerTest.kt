@@ -381,6 +381,23 @@ class SimklTrackingScrobblerTest {
     }
 
     @Test
+    fun `an external start does not ask a question it cannot have answered`() = runBlocking {
+        connect()
+        watchedEpisode()
+        settingsDataStore.setSimklRewatchMode(SimklRewatchMode.SEMI_AUTOMATIC)
+        accountAnswers(scrobbleResult(outcome = SimklScrobbleOutcome.START, progress = 0.0))
+
+        scrobbler.scrobble(
+            TrackingScrobbleAction.START,
+            event(progressPercent = 0.0, playbackId = 0L)
+        )
+
+        // The external player reports its start after it has already closed, so the answer could not
+        // reach the playback the question is about.
+        verify(exactly = 0) { consentRepository.ask(any()) }
+    }
+
+    @Test
     fun `a finished stop carries the answer into the write`() = runBlocking {
         connect()
         watchedEpisode()
@@ -514,7 +531,8 @@ class SimklTrackingScrobblerTest {
         progressPercent: Double,
         contentEndPercent: Double? = null,
         kind: TrackingMediaKind = TrackingMediaKind.SHOW,
-        hasPlaybackSession: Boolean = true
+        hasPlaybackSession: Boolean = true,
+        playbackId: Long = 42L
     ) = TrackingScrobbleEvent(
         media = TrackingMediaReference(
             kind = kind,
@@ -529,7 +547,8 @@ class SimklTrackingScrobblerTest {
         ),
         progressPercent = progressPercent,
         contentEndPercent = contentEndPercent,
-        hasPlaybackSession = hasPlaybackSession
+        hasPlaybackSession = hasPlaybackSession,
+        playbackId = playbackId
     )
 
     private fun scrobbleResult(

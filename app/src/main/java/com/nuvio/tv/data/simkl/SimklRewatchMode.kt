@@ -234,9 +234,14 @@ internal fun shouldAskToStartSimklRewatch(
     nowEpochMs: Long,
     hasRunningSession: Boolean,
     progressPercent: Double = 0.0,
+    hasPlaybackIdentity: Boolean = true,
 ): Boolean {
     if (mode != SimklRewatchMode.SEMI_AUTOMATIC) return false
     if (!isSimklRewatchPlanEligible(accountType)) return false
+    // An external player sends its start and stop back to back after it already closed, so a
+    // question raised by that start cannot be answered before the playback it is about. Such a
+    // start carries no playback id.
+    if (!hasPlaybackIdentity) return false
     if (action != TrackingScrobbleAction.START) return false
     if (hasRunningSession) return false
     // A start the player sends above the completion bar says that a playback that was already under

@@ -109,17 +109,6 @@ class SimklTrackingScrobbler @Inject constructor(
             recordRewatch = recordRewatch,
             completionThresholdPercent = completionThresholdPercent
         )
-        // The prior watch has to be read before the commit, or the playback looks like a repeat
-        // viewing of itself. A stop asks whether the viewing that ended is a rewatch, a start
-        // whether the viewing that is beginning opens a run.
-        val priorWatch = if (
-            action == TrackingScrobbleAction.STOP ||
-            action == TrackingScrobbleAction.START
-        ) {
-            syncRepository.state.value.snapshot.priorWatchForScrobble(result)
-        } else {
-            SimklPriorWatch.None
-        }
         if (action != TrackingScrobbleAction.START) {
             syncRepository.commitScrobble(result)
         }
@@ -146,6 +135,9 @@ class SimklTrackingScrobbler @Inject constructor(
             isSimklRewatchPlanEligible(accountType)
         }
         if (action == TrackingScrobbleAction.START) {
+            // The snapshot as it stood before this start answers whether the account already held
+            // the item, which is what the question before a run is about.
+            val priorWatch = syncRepository.state.value.snapshot.priorWatchForScrobble(result)
             val askToStartRun = shouldAskToStartSimklRewatch(
                 mode = mode,
                 accountType = accountType,
@@ -153,7 +145,8 @@ class SimklTrackingScrobbler @Inject constructor(
                 priorWatch = priorWatch,
                 nowEpochMs = System.currentTimeMillis(),
                 hasRunningSession = runningSessionId != null,
-                progressPercent = enrichedEvent.progressPercent
+                progressPercent = enrichedEvent.progressPercent,
+                hasPlaybackIdentity = enrichedEvent.playbackId != 0L
             )
             if (askToStartRun && planAllowsRewatches) {
                 rewatchConsentRepository.ask(enrichedEvent.media)
