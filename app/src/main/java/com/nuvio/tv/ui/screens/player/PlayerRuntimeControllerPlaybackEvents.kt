@@ -910,6 +910,11 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
     hasOpenedScrobbleSessionForCurrentItem = true
     // A new stretch of playback starts here. A completion stop sent before it does not stand for
     // this one, so the stop that ends it may be reported again.
+    // A completion stop the previous stretch reported does not belong to the session this start
+    // opens: a new id keeps the tracker's collapse rule from dropping the stop that ends it.
+    if (hasSentCompletionScrobbleForCurrentItem) {
+        scrobblePlaybackId = System.nanoTime()
+    }
     hasSentCompletionScrobbleForCurrentItem = false
 
     hasRequestedScrobbleStartForCurrentItem = true
@@ -1118,7 +1123,7 @@ internal fun PlayerRuntimeController.emitScrobblePause(progressPercent: Float? =
 }
 
 internal fun PlayerRuntimeController.emitCompletionScrobbleStop(progressPercent: Float) {
-    if (progressPercent < 80f || hasSentCompletionScrobbleForCurrentItem) return
+    if (progressPercent < TRACKING_COMPLETION_BAR_PERCENT || hasSentCompletionScrobbleForCurrentItem) return
     hasSentCompletionScrobbleForCurrentItem = true
     emitScrobbleStop(progressPercent = progressPercent)
 }
@@ -1138,7 +1143,7 @@ internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress() {
         )
         return
     }
-    if (progressPercent < 80f) {
+    if (progressPercent < TRACKING_COMPLETION_BAR_PERCENT) {
         emitScrobbleStop(progressPercent = progressPercent)
         return
     }
@@ -1150,7 +1155,7 @@ internal fun PlayerRuntimeController.emitPauseScrobbleForCurrentProgress() {
 }
 
 internal fun PlayerRuntimeController.emitSeekScrobbleRestart(progressPercent: Float) {
-    if (progressPercent < 1f || progressPercent >= 80f) return
+    if (progressPercent < 1f || progressPercent >= TRACKING_COMPLETION_BAR_PERCENT) return
     if (isShortPlaceholderStream()) return
     val item = currentScrobbleItem ?: return
     if (!hasRequestedScrobbleStartForCurrentItem) return
