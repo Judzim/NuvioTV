@@ -4,9 +4,13 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /** An episode that is about to play, held while the user decides whether it opens a run. */
 data class RewatchQuestion(val media: TrackingMediaReference)
@@ -57,6 +61,17 @@ class SimklRewatchConsentRepository @Inject constructor(
 
     /** The profile the answers belong to; another profile starts with no answers. */
     private var answersProfileId: Int? = null
+
+    private val profileWatcher = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+
+    /*
+     * The overlay reads the question whether or not anything asks again, so a profile switch has to
+     * drop the previous profile's question at the moment it happens. The answers field is declared
+     * above this block so the first emission sets it instead of being overwritten by its initializer.
+     */
+    init {
+        profileWatcher.launch { profileManager.activeProfileId.collect { ensureProfile() } }
+    }
 
     /**
      * Drops every answer when the active profile changed since the last one. The answers are about

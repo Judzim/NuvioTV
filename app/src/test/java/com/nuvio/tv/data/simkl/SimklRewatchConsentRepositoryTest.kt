@@ -46,6 +46,16 @@ class SimklRewatchConsentRepositoryTest {
     }
 
     @Test
+    fun `an open question is dropped when the profile changes`() {
+        repository.ask(dark(7))
+        assertEquals(7, repository.question.value?.media?.episode?.number)
+
+        activeProfileState.value = 2
+
+        assertNull(repository.question.value)
+    }
+
+    @Test
     fun `no question is open until one is asked`() {
         assertNull(repository.question.value)
         assertFalse(repository.grantedFor(dark(7)))
