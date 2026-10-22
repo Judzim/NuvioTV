@@ -5,6 +5,7 @@ import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -26,6 +27,18 @@ class MdbListTrackingScrobblerTest {
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(100.0, playbackId = 7L))
 
         coVerify(exactly = 1) { service.scrobble(any(), TrackingScrobbleAction.STOP, any()) }
+    }
+
+    @Test
+    fun `a failed completion does not suppress the completion that ends the playback`() = runTest {
+        val service = mockk<MdbListScrobbleService>(relaxed = true)
+        val scrobbler = scrobbler(service)
+        coEvery { service.scrobble(any(), TrackingScrobbleAction.STOP, any()) } returnsMany listOf(false, true)
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(85.0, playbackId = 7L))
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(100.0, playbackId = 7L))
+
+        coVerify(exactly = 2) { service.scrobble(any(), TrackingScrobbleAction.STOP, any()) }
     }
 
     @Test
@@ -53,6 +66,7 @@ class MdbListTrackingScrobblerTest {
     private fun scrobbler(service: MdbListScrobbleService): MdbListTrackingScrobbler {
         val sync = mockk<MdbListSyncRepository>()
         every { sync.currentScope() } returns MdbListAuthScope(profileId = 1, generation = 1L)
+        coEvery { service.scrobble(any(), any(), any()) } returns true
         return MdbListTrackingScrobbler(sync = sync, service = service)
     }
 

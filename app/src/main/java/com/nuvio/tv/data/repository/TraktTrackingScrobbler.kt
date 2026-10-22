@@ -52,12 +52,14 @@ class TraktTrackingScrobbler @Inject constructor(
             return
         }
         val item = event.media.toTraktScrobbleItem() ?: return
-        when (action) {
+        val written = when (action) {
             TrackingScrobbleAction.START -> service.scrobbleStart(item, event.progressPercent.toFloat())
             TrackingScrobbleAction.PAUSE -> service.scrobbleStop(item, event.progressPercent.toFloat())
             TrackingScrobbleAction.STOP -> service.scrobbleStop(item, event.progressPercent.toFloat())
         }
-        if (completesPlayback && event.playbackId != 0L) {
+        // The id is latched only after the tracker accepted the write, so a failed stop cannot
+        // suppress the later stop that really ends the playback.
+        if (completesPlayback && written && event.playbackId != 0L) {
             lastCompletedPlaybackId = event.playbackId
         }
     }

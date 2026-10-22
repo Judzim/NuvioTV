@@ -5,6 +5,7 @@ import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -48,6 +49,19 @@ class TraktTrackingScrobblerTest {
         scrobbler.scrobble(TrackingScrobbleAction.STOP, event(progressPercent = 100.0, playbackId = 42L))
 
         coVerify(exactly = 1) { service.scrobbleStop(any(), any()) }
+    }
+
+    @Test
+    fun `a failed completion does not suppress the completion that ends the playback`() = runTest {
+        val service = mockk<TraktScrobbleService>(relaxed = true)
+        val scrobbler = scrobbler(service)
+        coEvery { service.scrobbleStop(any(), 85f) } returns false
+        coEvery { service.scrobbleStop(any(), 100f) } returns true
+
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(85.0, playbackId = 42L))
+        scrobbler.scrobble(TrackingScrobbleAction.STOP, event(100.0, playbackId = 42L))
+
+        coVerify(exactly = 2) { service.scrobbleStop(any(), any()) }
     }
 
     @Test
@@ -100,11 +114,14 @@ class TraktTrackingScrobblerTest {
         coVerify(exactly = 2) { service.scrobbleStop(any(), 85f) }
     }
 
-    private fun scrobbler(service: TraktScrobbleService): TraktTrackingScrobbler =
-        TraktTrackingScrobbler(
+    private fun scrobbler(service: TraktScrobbleService): TraktTrackingScrobbler {
+        coEvery { service.scrobbleStart(any(), any()) } returns true
+        coEvery { service.scrobbleStop(any(), any()) } returns true
+        return TraktTrackingScrobbler(
             service = service,
             episodeMappingService = mockk(relaxed = true)
         )
+    }
 
     private fun event(progressPercent: Double, playbackId: Long = 0L) = TrackingScrobbleEvent(
         media = TrackingMediaReference(

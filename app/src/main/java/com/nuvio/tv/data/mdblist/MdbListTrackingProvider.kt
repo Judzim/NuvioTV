@@ -67,8 +67,10 @@ class MdbListTrackingScrobbler @Inject constructor(
         ) {
             return
         }
-        service.scrobble(sync.currentScope(), action, event)
-        if (completesPlayback && event.playbackId != 0L) {
+        val written = service.scrobble(sync.currentScope(), action, event)
+        // The id is latched only after the tracker accepted the write, so a failed stop cannot
+        // suppress the later stop that really ends the playback.
+        if (completesPlayback && written && event.playbackId != 0L) {
             lastCompletedPlaybackId = event.playbackId
         }
     }
