@@ -3275,17 +3275,12 @@ internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String) {
         rewatchId = sessionId
     )
     if (!closed) return
-    // Closing the session removes the run everywhere, so a dismissal the row saved under one of the
-    // run's id forms must not keep hiding the series once it is back on its canonical card. Clearing
-    // after the close landed, and only here, is the trade: the blanket clearing on every emission
-    // also swept away a stale dismissal a build that could not close a session left behind.
+    // The key of the dismissal just made is kept: clearing it in the same breath would put the
+    // card straight back. Only the run's other id forms are swept, and only after the close landed.
     for (key in nextUpDismissalKeysToClear(run.matchKeys, contentId)) {
         traktSettingsDataStore.removeDismissedNextUpKeysForContent(key)
     }
 }
-
-/** The content type the catalogue uses for series, which is what a run is read as. */
-private const val SERIES_CONTENT_TYPE = "series"
 
 internal fun HomeViewModel.removeContinueWatchingPipeline(
     contentId: String,
