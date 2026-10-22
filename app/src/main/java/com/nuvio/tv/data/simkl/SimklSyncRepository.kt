@@ -232,22 +232,23 @@ class SimklSyncRepository @Inject constructor(
      */
     internal suspend fun refreshRewatchRuns() = withContext(Dispatchers.IO) {
         ensureLoaded()
-        val sessions = _state.value.snapshot.rewatchSessions
-        if (sessions.isEmpty()) return@withContext
-        val runs = runCatching {
-            deriveSimklRewatchRuns(
-                entries = sessions,
-                offerRuns = offersSimklRewatchRuns()
-            )
-        }.getOrElse { error ->
-            Log.w(TAG, "Could not re-derive the runs after a setting change", error)
-            return@withContext
-        }
         val profileId = profileManager.activeProfileId.value
         val generation = profileGeneration
         snapshotMutex.withLock {
             if (!isCurrent(profileId, generation)) return@withLock
             val current = _state.value
+            // Read the sessions inside the lock so a sync that landed before this write is not overwritten.
+            val sessions = current.snapshot.rewatchSessions
+            if (sessions.isEmpty()) return@withLock
+            val runs = runCatching {
+                deriveSimklRewatchRuns(
+                    entries = sessions,
+                    offerRuns = offersSimklRewatchRuns()
+                )
+            }.getOrElse { error ->
+                Log.w(TAG, "Could not re-derive the runs after a setting change", error)
+                return@withLock
+            }
             if (current.snapshot.rewatchRuns == runs) return@withLock
             val snapshot = current.snapshot.copy(rewatchRuns = runs)
             val projection = buildProjection(snapshot)
