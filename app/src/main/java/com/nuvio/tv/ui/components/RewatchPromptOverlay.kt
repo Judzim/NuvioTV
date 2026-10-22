@@ -127,9 +127,9 @@ fun RewatchPromptOverlay(
  * is the only notice the app has of its own, so the question looks like it and not like its own design.
  *
  * The dialog window stays, but it fills the screen, so focus and the Back button stay with the
- * question: the band is drawn at the top of it, not in the middle. Focus starts on the recording
- * answer and the right arrow moves to the other one, so the answer that writes to the account is
- * never the one picked by mistake.
+ * question: the band is drawn at the top of it, not in the middle. Focus starts on the answer that
+ * does not write to the account, so the OK press a user makes to bring up the player controls cannot
+ * grant a rewatch by accident; left moves to the recording answer.
  */
 @Composable
 private fun RewatchQuestion(
@@ -151,7 +151,7 @@ private fun RewatchQuestion(
     }
 
     LaunchedEffect(question) {
-        runCatching { grantFocusRequester.requestFocusAfterFrames() }
+        runCatching { declineFocusRequester.requestFocusAfterFrames() }
     }
 
     Dialog(
