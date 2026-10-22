@@ -203,11 +203,13 @@ class TrackingSettingsViewModel @Inject constructor(
             // sync: the sessions the app already read are re-derived, and turning rewatches off drops
             // the row's runs with them.
             simklSyncRepository.refreshRewatchRuns()
-            if (mode != SimklRewatchMode.OFF) {
-                // The sessions may never have been read: the feature was off, or this install
-                // predates it. The cold-read flag makes this sync the one full read, now, instead of
-                // leaving the runs to the next activity the account happens to change.
-                simklSyncRepository.refresh(TrackingRefreshIntent.USER_INITIATED)
+            if (mode != SimklRewatchMode.OFF &&
+                !simklSyncRepository.state.value.snapshot.rewatchSessionsComplete
+            ) {
+                // Only a snapshot whose sessions were never read needs the cold read; a complete one
+                // already holds them. The refresh runs on the repository's own scope, so leaving this
+                // screen cannot cancel it.
+                simklSyncRepository.refreshAsync(TrackingRefreshIntent.USER_INITIATED)
             }
         }
     }
