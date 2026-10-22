@@ -7,6 +7,7 @@ import com.nuvio.tv.core.cloud.CloudLibraryPlaybackProgressStore
 import com.nuvio.tv.core.cloud.CloudLibraryPlaybackSessionStore
 import com.nuvio.tv.core.cloud.CloudLibraryRepository
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.tracking.TRACKING_COMPLETION_BAR_PERCENT
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
@@ -254,6 +255,7 @@ class ExternalPlaybackTracker @Inject constructor(
     private var nextEpisodeSnapshot: ExternalNextEpisodeSnapshot = ExternalNextEpisodeSnapshot.Unknown
     private var autoNextEnabledForPendingLaunch: Boolean? = null
     private var pendingCloudSessionToken: String? = null
+    private var pendingStartPositionMs: Long = 0L
 
     private val autoPlayNextNavigationEvents = ExternalAutoNextNavigationEvents(
         maxAgeMs = AUTO_NEXT_OVERLAY_TIMEOUT_MS
@@ -421,6 +423,7 @@ class ExternalPlaybackTracker @Inject constructor(
                 resolveSkipSegmentsJson(metadata)
             }
             val position = positionDeferred.await()
+            pendingStartPositionMs = position
             val skipSegmentsJson = skipSegmentsDeferred.await()
             if (shouldCancelPendingAutoLaunch(autoLaunch)) {
                 Log.d(AUTO_NEXT_TAG, "auto launch cancelled during player preparation")
@@ -1340,6 +1343,7 @@ class ExternalPlaybackTracker @Inject constructor(
         awaitingExternalPlayerResult = false
         pendingMetadata = null
         pendingCloudSessionToken = null
+        pendingStartPositionMs = 0L
         isAutoLaunch = false
         ExternalPlaybackKeepAliveService.stop(appContext)
         Log.d(TAG, "Stopped tracking")
@@ -1364,6 +1368,7 @@ class ExternalPlaybackTracker @Inject constructor(
             val resumePosition = if (startFromBeginning) 0L else withContext(Dispatchers.Default) {
                 getResumePosition(metadata)
             }
+            pendingStartPositionMs = resumePosition
             val result = ZidooPlayerMonitor.awaitPlaybackEnd(resumePositionMs = resumePosition)
             // State changes run on Main with ActivityResult; the monitor's HTTP requests use IO.
             if (pendingMetadata !== metadata) return@launch
@@ -1420,6 +1425,10 @@ class ExternalPlaybackTracker @Inject constructor(
         // Continue Watching or tracking entries for files that did not have them before.
         if (metadata.contentType.equals("cloud", ignoreCase = true)) return
         val effectiveDuration = durationMs ?: 0L
+        val startedAboveCompletionBar = effectiveDuration > 0L &&
+            pendingStartPositionMs > 0L &&
+            pendingStartPositionMs.toDouble() / effectiveDuration.toDouble() * 100.0 >=
+                TRACKING_COMPLETION_BAR_PERCENT
 
         scope.launch {
             val progress = WatchProgress(
@@ -1451,18 +1460,24 @@ class ExternalPlaybackTracker @Inject constructor(
             if (progressPercent > 0f) {
                 val scrobbleItem = buildScrobbleItem(metadata)
                 if (scrobbleItem != null) {
-                    // The external player is reported from its start here, so its stop is the end
-                    // of a session and may record a repeat viewing.
+                    // The external player reports its start when it is already over, so the item's
+                    // resume position decides whether this playback began below the completion bar.
+                    // One that began above it finishes a viewing the account already has and must
+                    // not open a rewatch.
                     trackingScrobbleCoordinator.scrobble(
                         TrackingScrobbleAction.START,
-                        TrackingScrobbleEvent(scrobbleItem, 0.0, hasPlaybackSession = true)
+                        TrackingScrobbleEvent(
+                            scrobbleItem,
+                            0.0,
+                            hasPlaybackSession = !startedAboveCompletionBar
+                        )
                     )
                     trackingScrobbleCoordinator.scrobble(
                         TrackingScrobbleAction.STOP,
                         TrackingScrobbleEvent(
                             scrobbleItem,
                             progressPercent.toDouble(),
-                            hasPlaybackSession = true
+                            hasPlaybackSession = !startedAboveCompletionBar
                         )
                     )
                 }
