@@ -4,7 +4,7 @@ import com.nuvio.tv.core.tracking.RewatchRunPosition
 import com.nuvio.tv.domain.model.WatchProgress
 
 /** The content type the catalogue uses for series, which is what the next-up resolver fetches by. */
-private const val SERIES_CONTENT_TYPE = "series"
+internal const val SERIES_CONTENT_TYPE = "series"
 
 /**
  * Moves a series the user is re-watching onto its run.

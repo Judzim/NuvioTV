@@ -30,6 +30,46 @@ import org.junit.Test
 class SimklRewatchWriteTest {
 
     @Test
+    fun `the close write names the session and no watch`() {
+        val body = buildSimklRewatchCloseBody(
+            show(episode = TrackingEpisode(season = 2, number = 7)),
+            7482L
+        ).asObject()
+
+        val showItem = body.getValue("shows").jsonArray.single().jsonObject
+        assertEquals(7482, showItem.getValue("rewatch_id").jsonPrimitive.content.toInt())
+        assertEquals("closed", showItem.getValue("rewatch_status").jsonPrimitive.content)
+        // The write has to say it is a rewatch, or Simkl answers it as a plain history write and the
+        // session is never touched; the answer looks the same either way.
+        assertTrue(showItem.getValue("is_rewatch").jsonPrimitive.content.toBoolean())
+        // Closing changes what the account keeps about the session, it is not a viewing: no episode
+        // coordinates, no date and no status mark, or Simkl would read the write as a watch.
+        assertNull(showItem["seasons"])
+        assertNull(showItem["episodes"])
+        assertNull(showItem["watched_at"])
+        assertNull(showItem["status"])
+        // An empty list is left out of the body entirely: the close carries one show and nothing else.
+        assertNull(body["movies"])
+    }
+
+    @Test
+    fun `a rewatch removal names the session and keeps the episode coordinates`() {
+        val body = buildSimklRewatchRemovalBody(
+            listOf(show(episode = TrackingEpisode(season = 2, number = 7))),
+            8975L
+        ).asObject()
+
+        val showItem = body.getValue("shows").jsonArray.single().jsonObject
+        // Without the session id the same request would clear the canonical watch instead.
+        assertEquals("8975", showItem.getValue("rewatch_id").jsonPrimitive.content)
+        assertNull(showItem["is_rewatch"])
+        assertNull(showItem["status"])
+        val episode = showItem.getValue("seasons").jsonArray.single().jsonObject
+            .getValue("episodes").jsonArray.single().jsonObject
+        assertEquals(7, episode.getValue("number").jsonPrimitive.content.toInt())
+    }
+
+    @Test
     fun `a rewatch write is an episode write and only it carries the flag`() {
         val rewatch = buildSimklHistoryMutationBody(
             listOf(TrackingHistoryItem(show(episode = TrackingEpisode(season = 2, number = 7)), WATCHED_AT)),
@@ -63,6 +103,41 @@ class SimklRewatchWriteTest {
         ).asObject().getValue("shows").jsonArray.single().jsonObject
         assertNull(removal["is_rewatch"])
         assertNull(removal["status"])
+    }
+
+    @Test
+    fun `a write into a running session names it, a write that opens one does not`() {
+        val episode = TrackingEpisode(season = 2, number = 7)
+
+        // Continuing a run: the session rides on the show entry, which is where Simkl documents it, and
+        // not on the episode that carries the coordinates.
+        val continued = buildSimklHistoryMutationBody(
+            listOf(TrackingHistoryItem(show(episode = episode), WATCHED_AT, rewatchId = 21284L)),
+            isRewatch = true
+        ).asObject().getValue("shows").jsonArray.single().jsonObject
+        assertEquals("21284", continued.getValue("rewatch_id").jsonPrimitive.content)
+        val continuedEpisode = continued.getValue("seasons").jsonArray.single().jsonObject
+            .getValue("episodes").jsonArray.single().jsonObject
+        assertNull(continuedEpisode["rewatch_id"])
+
+        // Opening a run: there is nothing to continue yet, so no id is guessed and none is sent.
+        val opening = buildSimklHistoryMutationBody(
+            listOf(TrackingHistoryItem(show(episode = episode), WATCHED_AT)),
+            isRewatch = true
+        ).asObject().getValue("shows").jsonArray.single().jsonObject
+        assertNull(opening["rewatch_id"])
+
+        // A movie is one watch, so its session is the write itself and rides the same way.
+        val movieItem = buildSimklHistoryMutationBody(
+            listOf(TrackingHistoryItem(movie(), WATCHED_AT, rewatchId = 991L)),
+            isRewatch = true
+        ).asObject().getValue("movies").jsonArray.single().jsonObject
+        assertEquals("991", movieItem.getValue("rewatch_id").jsonPrimitive.content)
+
+        // A removal carries neither the flag nor a session.
+        val removal = buildSimklHistoryRemovalBody(listOf(show(episode = episode)))
+            .asObject().getValue("shows").jsonArray.single().jsonObject
+        assertNull(removal["rewatch_id"])
     }
 
     @Test
@@ -294,4 +369,26 @@ class SimklRewatchWriteTest {
         val configuration = SimklApiConfiguration("client-id", "nuvio", "1.0")
         fun response(status: Int, body: String = "{}") = SimklRawHttpResponse(status, body)
     }
+    @Test
+    fun `a mark of a repeat viewing carries the flag and the run it joins`() {
+        val body = buildSimklHistoryMutationBody(
+            listOf(
+                TrackingHistoryItem(show(episode = TrackingEpisode(season = 2, number = 7)), WATCHED_AT)
+                    .copy(isRewatch = true, rewatchId = 21284L),
+                TrackingHistoryItem(movie(), WATCHED_AT)
+            )
+        ).asObject()
+
+        val showItem = body.getValue("shows").jsonArray.single().jsonObject
+        // The mark says it is a repeat and names the run it belongs to, so the account books it into
+        // that run instead of opening another one.
+        assertTrue(showItem.getValue("is_rewatch").jsonPrimitive.content.toBoolean())
+        assertEquals(21284, showItem.getValue("rewatch_id").jsonPrimitive.content.toInt())
+
+        // The first watch in the same request stays a plain add: there is nothing for it to repeat.
+        val movieItem = body.getValue("movies").jsonArray.single().jsonObject
+        assertNull(movieItem["is_rewatch"])
+        assertNull(movieItem["rewatch_id"])
+    }
+
 }

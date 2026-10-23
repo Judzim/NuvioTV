@@ -256,10 +256,12 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         return
     }
 
-    val resolvedNext = PlayerNextEpisodeRules.resolveNextEpisode(
-        videos = metaVideos,
-        currentSeason = season,
-        currentEpisode = episode
+    val shuffleState = playbackShuffleState ?: run {
+        clearNextEpisodeAndCancelPostPlay()
+        return
+    }
+    val resolvedNext = episodeShufflePlayback.nextEpisode(
+        profileId, contentId.orEmpty(), metaVideos, season, episode, shuffleState
     )
 
     nextEpisodeVideo = resolvedNext
@@ -278,6 +280,7 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         overview = resolvedNext.overview,
         released = resolvedNext.released,
         hasAired = hasAired,
+        available = resolvedNext.available,
         unairedMessage = if (hasAired) {
             null
         } else {
@@ -382,6 +385,26 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
     if (state.postPlayMode != null || state.postPlayDismissedForCurrentEpisode) return
 
     val effectiveDuration = effectiveDurationEarly
+
+    // Preload: start fetching sources for next episode before the button appears.
+    if (preloadNextEpisodeSourcesSetting && !nextEpisodePreloadTriggered && state.nextEpisode != null) {
+        val preloadLeadMs = maxOf(streamAutoPlayTimeoutSecondsSetting.toLong() * 1_000L, 10_000L)
+            .coerceAtMost(30_000L)
+        val shouldPreloadByCard = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
+            positionMs = positionMs + preloadLeadMs,
+            durationMs = effectiveDuration,
+            skipIntervals = skipIntervals,
+            thresholdMode = nextEpisodeThresholdModeSetting,
+            thresholdPercent = nextEpisodeThresholdPercentSetting,
+            thresholdMinutesBeforeEnd = nextEpisodeThresholdMinutesBeforeEndSetting
+        )
+        val shouldPreloadByEnd = effectiveDuration > 0L &&
+            (effectiveDuration - positionMs) <= preloadLeadMs
+        if (shouldPreloadByCard || shouldPreloadByEnd) {
+            preloadNextEpisodeSources()
+        }
+    }
+
     val shouldShow = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
         positionMs = positionMs,
         durationMs = effectiveDuration,
@@ -406,10 +429,15 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
     if (shouldEnterStillWatching) {
         enterStillWatchingPromptMode()
     } else {
+        val ne = state.nextEpisode
+        val isUnplayable = !ne.hasAired ||
+            (ne.released.isNullOrBlank() && ne.available == false)
+        if (isUnplayable) return
+
         _uiState.update {
             it.copy(postPlayMode = PostPlayMode.AutoPlay(nextEpisode = state.nextEpisode))
         }
-        if (state.nextEpisode.hasAired && streamAutoPlayNextEpisodeEnabledSetting) {
+        if (streamAutoPlayNextEpisodeEnabledSetting) {
             playNextEpisode()
         }
     }
@@ -463,7 +491,8 @@ internal fun PlayerRuntimeController.updateActiveSkipInterval(positionMs: Long) 
         if (
             segmentType != null &&
             segmentType in autoSkipSegmentTypes &&
-            activeKey !in autoSkippedIntervalKeys
+            activeKey !in autoSkippedIntervalKeys &&
+            !isPartyControlLocked
         ) {
             autoSkippedIntervalKeys.add(activeKey)
             skipInterval(active)

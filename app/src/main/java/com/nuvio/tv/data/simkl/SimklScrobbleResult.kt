@@ -164,8 +164,8 @@ internal fun TrackingMediaKind.toSimklMediaType(): SimklMediaType = when (this) 
  * A stop the account did not answer with an action is read against the completion threshold and not
  * against Simkl's own 80 percent. The two only part ways above 80, and there the user's number is the
  * one the app reports a finished playback with, so it has to be the one this reads. Staying below the
- * threshold is answered as a pause, which is what the caller sends in the first place; see
- * SimklMutationService.scrobble.
+ * threshold is answered as a pause: the caller sends a stop that carries the completion threshold,
+ * and the account answers with a pause of its own; see SimklMutationService.scrobble.
  */
 private fun TrackingScrobbleAction.fallbackOutcome(
     progress: Double,

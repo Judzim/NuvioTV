@@ -3,17 +3,16 @@ package com.nuvio.tv.data.simkl
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * The settings this feature adds and what each combination of them does: the completion threshold, the
- * rewatch mode, the plan it needs, and the next-up mode that reads the sessions back.
+ * rewatch mode and the plan it needs.
  *
- * The write on the scrobble and the question asked afterwards are the two places a rewatch can be
- * recorded, so both are covered here as the gates they are: the mode, the plan, the action, whether the
- * playback finished, and whether the item is a repeat viewing at all.
+ * The write on the scrobble and the question raised before a playback are the two places a rewatch can
+ * be recorded, so both are covered here as the gates they are: the mode, the plan, the action, whether
+ * the playback finished, and whether the item is a repeat viewing at all.
  */
 class SimklRewatchPolicyTest {
 
@@ -23,35 +22,148 @@ class SimklRewatchPolicyTest {
         assertEquals(80, coerceSimklWatchedThresholdPercent(80))
         assertEquals(85, coerceSimklWatchedThresholdPercent(85))
         assertEquals(95, coerceSimklWatchedThresholdPercent(95))
-        assertEquals(95, coerceSimklWatchedThresholdPercent(99))
+        assertEquals(99, coerceSimklWatchedThresholdPercent(99))
+        assertEquals(100, coerceSimklWatchedThresholdPercent(100))
+        assertEquals(100, coerceSimklWatchedThresholdPercent(140))
         assertEquals(80, SimklWatchedThresholdRange.first)
-        assertEquals(95, SimklWatchedThresholdRange.last)
+        assertEquals(100, SimklWatchedThresholdRange.last)
+    }
+
+    @Test
+    fun `a start above the completion bar does not ask`() {
+        val watched = SimklPriorWatch(wasWatched = true, watchedAtEpochMs = 1_000_000L)
+
+        // Below the bar the question is the normal one: a viewing of something already watched is
+        // beginning, and the answer decides whether the stop asks Simkl for a rewatch.
+        assertTrue(
+            ask(
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
+                accountType = "pro",
+                priorWatch = watched,
+                nowEpochMs = watched.watchedAtEpochMs!! + SIMKL_REWATCH_MIN_GAP_MS,
+                progressPercent = 0.0,
+            )
+        )
+        // Above the bar the start only says the playback is running again: the question was asked
+        // when this viewing began, and a second one in the middle of it would be noise.
+        assertFalse(
+            ask(
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
+                accountType = "pro",
+                priorWatch = watched,
+                nowEpochMs = watched.watchedAtEpochMs!! + SIMKL_REWATCH_MIN_GAP_MS,
+                progressPercent = 85.0,
+            )
+        )
+    }
+
+    @Test
+    fun `a playback that never had a session is not a repeat viewing`() {
+        // Above the bar there is no session to repeat: the stop ends a viewing the account already
+        // has, so neither the automatic mode nor an open run may open a session for it.
+        assertFalse(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                hasPlaybackSession = false,
+            )
+        )
+        assertFalse(
+            record(
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
+                accountType = "pro",
+                hasRunningSession = true,
+                hasPlaybackSession = false,
+            )
+        )
+        assertTrue(record(mode = SimklRewatchMode.AUTOMATIC, accountType = "pro"))
+    }
+
+    @Test
+    fun `a resume below the Simkl threshold keeps the viewing that started`() {
+        // The player's bar is 80 and the completion point is 87: a pause at 82 is still unfinished.
+        assertTrue(simklPlaybackHadSession(false, 82.0, 87.0))
+        assertFalse(simklPlaybackHadSession(false, 90.0, 87.0))
+        assertFalse(simklPlaybackHadSession(false, 87.0, 87.0))
+        assertTrue(simklPlaybackHadSession(true, 90.0, 87.0))
+        assertFalse(simklPlaybackHadSession(false, null, 87.0))
+
+        // The derived session is what the policy sees: the same stop writes or stays out by it.
+        assertTrue(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                progressPercent = 100.0,
+                completionThresholdPercent = 87.0,
+                hasPlaybackSession = simklPlaybackHadSession(false, 82.0, 87.0),
+            )
+        )
+        assertFalse(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                progressPercent = 100.0,
+                completionThresholdPercent = 87.0,
+                hasPlaybackSession = simklPlaybackHadSession(false, 90.0, 87.0),
+            )
+        )
+    }
+
+    @Test
+    fun `the threshold Simkl is told is a whole number inside its own range`() {
+        // Simkl drops the decimals, so the client decides with the same floored number it sends.
+        assertEquals(96, simklMinProgressPercent(96.0))
+        assertEquals(96, simklMinProgressPercent(96.7))
+        assertEquals(90, simklMinProgressPercent(90.5))
+        // The bounds Simkl documents: 1 to 49 counts as 50, above 100 counts as 100.
+        assertEquals(50, simklMinProgressPercent(20.0))
+        assertEquals(100, simklMinProgressPercent(140.0))
+        // No usable number falls back to the bar Simkl needs to record a watch at all.
+        assertEquals(80, simklMinProgressPercent(Double.NaN))
+    }
+
+    @Test
+    fun `a scrobble query carries the threshold and asks for a rewatch only where it may`() {
+        assertEquals(mapOf("min_progress" to "90"), simklScrobbleQuery(90.0, recordRewatch = false))
+        assertEquals(
+            mapOf("min_progress" to "90", "allow_rewatch" to "yes"),
+            simklScrobbleQuery(90.0, recordRewatch = true),
+        )
     }
 
     @Test
     fun `rewatch bookkeeping is off until the user asks for it`() {
         assertEquals(SimklRewatchMode.OFF, SimklRewatchMode.Default)
-        assertEquals(80, SIMKL_WATCHED_THRESHOLD_DEFAULT_PERCENT)
-        assertEquals(SimklRewatchNextUpMode.ALWAYS, SimklRewatchNextUpMode.Default)
         assertEquals(SimklRewatchMode.OFF, SimklRewatchMode.fromStorage(null))
         assertEquals(SimklRewatchMode.OFF, SimklRewatchMode.fromStorage("nonsense"))
         assertEquals(SimklRewatchMode.AUTOMATIC, SimklRewatchMode.fromStorage("automatic"))
-        assertEquals(SimklRewatchMode.MANUAL, SimklRewatchMode.fromStorage(" MANUAL "))
-        assertTrue(SimklRewatchMode.MANUAL.isEnabled)
-        assertFalse(SimklRewatchMode.OFF.isEnabled)
+        assertEquals(SimklRewatchMode.SEMI_AUTOMATIC, SimklRewatchMode.fromStorage("semi_automatic"))
+        // The mode the setting shipped as before it asked before the playback: the answer the user
+        // stored is still an answer, so it is read as the mode that asks.
+        assertEquals(SimklRewatchMode.SEMI_AUTOMATIC, SimklRewatchMode.fromStorage(" MANUAL "))
     }
 
     @Test
-    fun `only automatic mode on a plan that allows it writes a rewatch on a finished stop`() {
+    fun `automatic mode writes on every finished stop, semi only where the user said so`() {
         assertTrue(record(SimklRewatchMode.AUTOMATIC, "pro"))
         assertTrue(record(SimklRewatchMode.AUTOMATIC, " VIP "))
 
-        // The plan decides, and every other mode leaves the flag off so nothing is written server side.
+        // The plan decides, and every mode leaves the flag off without one.
         assertFalse(record(SimklRewatchMode.AUTOMATIC, "free"))
         assertFalse(record(SimklRewatchMode.AUTOMATIC, null))
         assertFalse(record(SimklRewatchMode.AUTOMATIC, "unconfirmed"))
-        assertFalse(record(SimklRewatchMode.MANUAL, "pro"))
+        assertFalse(record(SimklRewatchMode.SEMI_AUTOMATIC, "pro"))
         assertFalse(record(SimklRewatchMode.OFF, "pro"))
+
+        // Semi-automatic writes in two cases, and only those: the account runs the item already, or
+        // the user answered the question before the playback with yes. Never as a guess of its own.
+        assertTrue(record(SimklRewatchMode.SEMI_AUTOMATIC, "pro", hasRunningSession = true))
+        assertTrue(record(SimklRewatchMode.SEMI_AUTOMATIC, "pro", consented = true))
+
+        // The gates every mode shares still hold for both of them.
+        assertFalse(record(SimklRewatchMode.SEMI_AUTOMATIC, "pro", consented = true, progressPercent = 79.0))
+        assertFalse(record(SimklRewatchMode.SEMI_AUTOMATIC, "free", consented = true))
+        assertFalse(record(SimklRewatchMode.SEMI_AUTOMATIC, "pro", consented = true, action = TrackingScrobbleAction.PAUSE))
     }
 
     @Test
@@ -59,6 +171,7 @@ class SimklRewatchPolicyTest {
         assertFalse(record(SimklRewatchMode.AUTOMATIC, "pro", action = TrackingScrobbleAction.PAUSE))
         assertFalse(record(SimklRewatchMode.AUTOMATIC, "pro", action = TrackingScrobbleAction.START))
         assertFalse(record(SimklRewatchMode.AUTOMATIC, "pro", progressPercent = 79.0))
+        assertFalse(record(SimklRewatchMode.SEMI_AUTOMATIC, "pro", consented = true, action = TrackingScrobbleAction.START))
         assertTrue(record(SimklRewatchMode.AUTOMATIC, "pro", progressPercent = 80.0))
 
         // The threshold is a parameter, not a constant: the same stop passes or fails with it.
@@ -86,7 +199,7 @@ class SimklRewatchPolicyTest {
         // playback is not over and no rewatch is written for it.
         val completion = resolvedSimklCompletionPercent(userThresholdPercent = 80.0, contentEndPercent = 93.0)
 
-        assertEquals(92.0, completion, 0.0001)
+        assertEquals(93.0, completion, 0.0001)
         assertFalse(
             record(
                 mode = SimklRewatchMode.AUTOMATIC,
@@ -95,7 +208,7 @@ class SimklRewatchPolicyTest {
                 completionThresholdPercent = completion,
             ),
         )
-        assertTrue(
+        assertFalse(
             record(
                 mode = SimklRewatchMode.AUTOMATIC,
                 accountType = "pro",
@@ -103,19 +216,27 @@ class SimklRewatchPolicyTest {
                 completionThresholdPercent = completion,
             ),
         )
+        assertTrue(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                progressPercent = 93.0,
+                completionThresholdPercent = completion,
+            ),
+        )
     }
 
     @Test
-    fun `the credits marker wins and is read one point early`() {
-        // Marker above the user bar: the marker decides.
+    fun `the credits marker wins`() {
+        // Marker above the user bar: the marker decides, read with the tolerance the player applied.
         assertEquals(
-            92.0,
+            93.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 80.0, contentEndPercent = 93.0),
             0.0001,
         )
         // Marker below the user bar but above what Simkl needs: the marker still decides.
         assertEquals(
-            84.0,
+            85.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 92.0, contentEndPercent = 85.0),
             0.0001,
         )
@@ -128,22 +249,22 @@ class SimklRewatchPolicyTest {
     }
 
     @Test
-    fun `a marker that does not survive the tolerance above the Simkl bar is dropped`() {
-        // 80.5 minus the tolerance is 79.5, under what Simkl needs to count a watch, so the user bar
-        // decides instead of a marker that would never be able to record anything.
+    fun `a marker under the Simkl bar is dropped`() {
+        // A marker the account would not count a stop against, because Simkl records a watch only from
+        // its own bar up: the user bar decides instead of a marker that could never record anything.
         assertEquals(
             85.0,
-            resolvedSimklCompletionPercent(userThresholdPercent = 85.0, contentEndPercent = 80.5),
+            resolvedSimklCompletionPercent(userThresholdPercent = 85.0, contentEndPercent = 79.5),
             0.0001,
         )
+        // On the bar it is usable.
         assertEquals(
-            85.0,
+            80.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 85.0, contentEndPercent = 80.0),
             0.0001,
         )
-        // Exactly on the bar after the tolerance is still usable.
         assertEquals(
-            80.0,
+            81.0,
             resolvedSimklCompletionPercent(userThresholdPercent = 95.0, contentEndPercent = 81.0),
             0.0001,
         )
@@ -164,25 +285,25 @@ class SimklRewatchPolicyTest {
         assertEquals(80.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 79.0), 0.0001)
         // Only the threshold is replaced. The credits marker is where the content really ends, so a
         // marker that survives the tolerance decides whatever the threshold was.
-        assertEquals(92.0, resolvedSimklCompletionPercent(Double.POSITIVE_INFINITY, 93.0), 0.0001)
-        assertEquals(92.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 93.0), 0.0001)
+        assertEquals(93.0, resolvedSimklCompletionPercent(Double.POSITIVE_INFINITY, 93.0), 0.0001)
+        assertEquals(93.0, resolvedSimklCompletionPercent(Double.NEGATIVE_INFINITY, 93.0), 0.0001)
         // A marker that cannot be read is dropped and the user bar decides instead.
         assertEquals(90.0, resolvedSimklCompletionPercent(90.0, Double.NaN), 0.0001)
         assertEquals(90.0, resolvedSimklCompletionPercent(90.0, Double.POSITIVE_INFINITY), 0.0001)
     }
 
     @Test
-    fun `only manual mode asks, and only for a repeat viewing Simkl would keep`() {
+    fun `only semi-automatic mode asks, and only before a playback that opens a run`() {
         val nowEpochMs = 10_000_000_000L
         val olderThanTheGap = nowEpochMs - SIMKL_REWATCH_MIN_GAP_MS - 1L
         val insideTheGap = nowEpochMs - SIMKL_REWATCH_MIN_GAP_MS + 1L
         val exactlyOnTheGap = nowEpochMs - SIMKL_REWATCH_MIN_GAP_MS
         val watchedLongAgo = SimklPriorWatch(wasWatched = true, watchedAtEpochMs = olderThanTheGap)
 
-        assertTrue(ask(mode = SimklRewatchMode.MANUAL, accountType = "pro", priorWatch = watchedLongAgo))
+        assertTrue(ask(mode = SimklRewatchMode.SEMI_AUTOMATIC, accountType = "pro", priorWatch = watchedLongAgo))
         assertTrue(
             ask(
-                mode = SimklRewatchMode.MANUAL,
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
                 accountType = "pro",
                 priorWatch = SimklPriorWatch(wasWatched = true, watchedAtEpochMs = exactlyOnTheGap),
             ),
@@ -191,75 +312,51 @@ class SimklRewatchPolicyTest {
         // The other modes never ask, and neither does a plan that cannot record a rewatch.
         assertFalse(ask(mode = SimklRewatchMode.OFF, accountType = "pro", priorWatch = watchedLongAgo))
         assertFalse(ask(mode = SimklRewatchMode.AUTOMATIC, accountType = "pro", priorWatch = watchedLongAgo))
-        assertFalse(ask(mode = SimklRewatchMode.MANUAL, accountType = "free", priorWatch = watchedLongAgo))
-        assertFalse(ask(mode = SimklRewatchMode.MANUAL, accountType = null, priorWatch = watchedLongAgo))
+        assertFalse(ask(mode = SimklRewatchMode.SEMI_AUTOMATIC, accountType = "free", priorWatch = watchedLongAgo))
+        assertFalse(ask(mode = SimklRewatchMode.SEMI_AUTOMATIC, accountType = null, priorWatch = watchedLongAgo))
 
-        // Only a finished stop that Simkl accepted as a scrobble is worth asking about.
+        // A run the account already holds is never asked about: the playback is written into it.
         assertFalse(
             ask(
-                mode = SimklRewatchMode.MANUAL,
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
                 accountType = "pro",
                 priorWatch = watchedLongAgo,
-                action = TrackingScrobbleAction.PAUSE,
+                hasRunningSession = true,
             ),
         )
+
+        // Only a playback that is beginning asks. A stop is where the answer is used, not where it
+        // is collected.
         assertFalse(
             ask(
-                mode = SimklRewatchMode.MANUAL,
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
                 accountType = "pro",
                 priorWatch = watchedLongAgo,
-                outcome = SimklScrobbleOutcome.PAUSE,
-            ),
-        )
-        assertFalse(
-            ask(
-                mode = SimklRewatchMode.MANUAL,
-                accountType = "pro",
-                priorWatch = watchedLongAgo,
-                progressPercent = 79.0,
-            ),
-        )
-        // The same gate the write uses: credits at 93 mean a stop at 85 has not finished.
-        assertFalse(
-            ask(
-                mode = SimklRewatchMode.MANUAL,
-                accountType = "pro",
-                priorWatch = watchedLongAgo,
-                progressPercent = 85.0,
-                completionThresholdPercent = 92.0,
+                action = TrackingScrobbleAction.STOP,
             ),
         )
 
         // An item the account does not hold is not a repeat viewing at all.
-        assertFalse(ask(mode = SimklRewatchMode.MANUAL, accountType = "pro", priorWatch = SimklPriorWatch.None))
+        assertFalse(
+            ask(mode = SimklRewatchMode.SEMI_AUTOMATIC, accountType = "pro", priorWatch = SimklPriorWatch.None),
+        )
 
-        // Simkl folds a watch from the last two days into the session it already has, so a confirmation
-        // would do nothing. A row with no timestamp is asked about, since nothing says otherwise.
+        // Simkl folds a watch from the last two days into the session it already has, so a yes would
+        // do nothing. A row with no timestamp is asked about, since nothing says otherwise.
         assertFalse(
             ask(
-                mode = SimklRewatchMode.MANUAL,
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
                 accountType = "pro",
                 priorWatch = SimklPriorWatch(wasWatched = true, watchedAtEpochMs = insideTheGap),
             ),
         )
         assertTrue(
             ask(
-                mode = SimklRewatchMode.MANUAL,
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
                 accountType = "pro",
                 priorWatch = SimklPriorWatch(wasWatched = true, watchedAtEpochMs = null),
             ),
         )
-    }
-
-    @Test
-    fun `the next-up setting decides how much of a run is read back`() {
-        assertEquals(1, SimklRewatchNextUpMode.ALWAYS.minimumRunEpisodes)
-        assertEquals(2, SimklRewatchNextUpMode.AFTER_TWO.minimumRunEpisodes)
-        assertNull(SimklRewatchNextUpMode.NEVER.minimumRunEpisodes)
-        assertEquals(SimklRewatchNextUpMode.AFTER_TWO, SimklRewatchNextUpMode.fromStorage("after_two"))
-        assertEquals(SimklRewatchNextUpMode.NEVER, SimklRewatchNextUpMode.fromStorage("Never"))
-        assertEquals(SimklRewatchNextUpMode.ALWAYS, SimklRewatchNextUpMode.fromStorage("nonsense"))
-        assertEquals(SimklRewatchNextUpMode.ALWAYS, SimklRewatchNextUpMode.fromStorage(null))
     }
 
     @Test
@@ -273,9 +370,9 @@ class SimklRewatchPolicyTest {
         // Off is always available, because turning it off never needs the plan.
         assertTrue(isSimklRewatchModeSelectable(SimklRewatchMode.OFF, "free"))
         assertTrue(isSimklRewatchModeSelectable(SimklRewatchMode.OFF, null))
-        assertFalse(isSimklRewatchModeSelectable(SimklRewatchMode.MANUAL, "free"))
+        assertFalse(isSimklRewatchModeSelectable(SimklRewatchMode.SEMI_AUTOMATIC, "free"))
         assertFalse(isSimklRewatchModeSelectable(SimklRewatchMode.AUTOMATIC, null))
-        assertTrue(isSimklRewatchModeSelectable(SimklRewatchMode.MANUAL, "pro"))
+        assertTrue(isSimklRewatchModeSelectable(SimklRewatchMode.SEMI_AUTOMATIC, "pro"))
         assertTrue(isSimklRewatchModeSelectable(SimklRewatchMode.AUTOMATIC, "vip"))
     }
 
@@ -285,12 +382,18 @@ class SimklRewatchPolicyTest {
         action: TrackingScrobbleAction = TrackingScrobbleAction.STOP,
         progressPercent: Double = 95.0,
         completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
+        hasRunningSession: Boolean = false,
+        consented: Boolean = false,
+        hasPlaybackSession: Boolean = true,
     ): Boolean = shouldRecordSimklRewatchOnStop(
         mode = mode,
         accountType = accountType,
         action = action,
         progressPercent = progressPercent,
         completionThresholdPercent = completionThresholdPercent,
+        hasRunningSession = hasRunningSession,
+        consented = consented,
+        hasPlaybackSession = hasPlaybackSession,
     )
 
     private fun ask(
@@ -298,18 +401,41 @@ class SimklRewatchPolicyTest {
         accountType: String?,
         priorWatch: SimklPriorWatch,
         nowEpochMs: Long = 10_000_000_000L,
-        action: TrackingScrobbleAction = TrackingScrobbleAction.STOP,
-        outcome: SimklScrobbleOutcome = SimklScrobbleOutcome.SCROBBLE,
-        progressPercent: Double = 95.0,
-        completionThresholdPercent: Double = SIMKL_REWATCH_MIN_PROGRESS_PERCENT,
-    ): Boolean = shouldPromptSimklRewatch(
+        action: TrackingScrobbleAction = TrackingScrobbleAction.START,
+        hasRunningSession: Boolean = false,
+        progressPercent: Double = 0.0,
+    ): Boolean = shouldAskToStartSimklRewatch(
         mode = mode,
         accountType = accountType,
         action = action,
-        outcome = outcome,
-        progressPercent = progressPercent,
         priorWatch = priorWatch,
         nowEpochMs = nowEpochMs,
-        completionThresholdPercent = completionThresholdPercent,
+        hasRunningSession = hasRunningSession,
+        progressPercent = progressPercent,
     )
+    @Test
+    fun `a manual mark is written as a rewatch only where the account can take one`() {
+        // The mode and the plan are the gates the scrobble path uses.
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.OFF, "pro", isRepeatViewing = true))
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, "free", isRepeatViewing = true))
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, null, isRepeatViewing = true))
+
+        // A title the account watched before, on a plan that takes rewatches.
+        assertTrue(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, "pro", isRepeatViewing = true))
+        assertTrue(shouldRecordSimklRewatchOnMark(SimklRewatchMode.SEMI_AUTOMATIC, "vip", isRepeatViewing = true))
+
+        // A first watch stays a plain add: there is nothing to repeat.
+        assertFalse(shouldRecordSimklRewatchOnMark(SimklRewatchMode.AUTOMATIC, "pro", isRepeatViewing = false))
+
+        // A run the account already holds takes the mark whatever the title's own state says.
+        assertTrue(
+            shouldRecordSimklRewatchOnMark(
+                mode = SimklRewatchMode.SEMI_AUTOMATIC,
+                accountType = "pro",
+                isRepeatViewing = false,
+                hasRunningSession = true
+            )
+        )
+    }
+
 }

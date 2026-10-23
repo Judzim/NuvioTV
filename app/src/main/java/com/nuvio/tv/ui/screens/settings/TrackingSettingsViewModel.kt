@@ -2,7 +2,9 @@ package com.nuvio.tv.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingProviderId
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.core.tracking.TrackingSourceController
 import com.nuvio.tv.core.tracking.TrackingSourceSelection
 import com.nuvio.tv.core.tracking.availableLibrarySourceModes
@@ -11,10 +13,10 @@ import com.nuvio.tv.core.tracking.effectiveTrackingSourceSelection
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
+import com.nuvio.tv.data.mdblist.MdbListAuthStore
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklAuthRepository
 import com.nuvio.tv.data.simkl.SimklRewatchMode
-import com.nuvio.tv.data.simkl.SimklRewatchNextUpMode
 import com.nuvio.tv.data.simkl.SimklSyncRepository
 import com.nuvio.tv.data.simkl.coerceSimklWatchedThresholdPercent
 import com.nuvio.tv.data.simkl.isSimklRewatchModeSelectable
@@ -39,7 +41,6 @@ data class TrackingSettingsUiState(
      * the account holds without being asked.
      */
     val simklRewatchMode: SimklRewatchMode = SimklRewatchMode.Default,
-    val simklRewatchNextUpMode: SimklRewatchNextUpMode = SimklRewatchNextUpMode.Default,
     val simklWatchedThresholdPercent: Int =
         TraktSettingsDataStore.DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT,
     val isReady: Boolean = false
@@ -54,14 +55,13 @@ data class TrackingSettingsUiState(
 /**
  * The Simkl preferences the tracking screen shows, read as one value.
  *
- * Držané spolu, lebo `combine` má preťaženia len do piatich flow: päť flow stavu obrazovky plus tri
- * rewatch flow a prah je osem, takže sa Simkl preferencie skladajú do jedného vnoreného `combine`
- * a do vonkajšieho vstupujú ako jedna hodnota.
+ * Held together because `combine` is overloaded only up to five flows: five screen state flows plus
+ * the rewatch preferences are too many for one call, so the Simkl preferences are combined in an
+ * inner `combine` and enter the outer one as a single value.
  */
 internal data class SimklTrackingPreferences(
     val animeIdPreference: SimklAnimeIdPreference = SimklAnimeIdPreference.DEFAULT,
     val rewatchMode: SimklRewatchMode = SimklRewatchMode.Default,
-    val rewatchNextUpMode: SimklRewatchNextUpMode = SimklRewatchNextUpMode.Default,
     val watchedThresholdPercent: Int = TraktSettingsDataStore.DEFAULT_SIMKL_WATCHED_THRESHOLD_PERCENT
 )
 
@@ -70,20 +70,17 @@ internal data class SimklTrackingPreferences(
  *
  * Pure on purpose: the only logic the state carries is the fallback of the requested sources to the
  * connected providers, so it can be reasoned about and tested with plain values instead of a data
- * store. It always reports [TrackingSettingsUiState.isReady], because every caller reaches it after
- * the store answered.
+ * store. A null [connectedProviderIds] means the stored credentials do not belong to the profile the
+ * app is showing, so nothing can be read yet and the state stays [TrackingSettingsUiState.isReady]
+ * false; every other caller reaches it once the providers answered.
  */
 internal fun trackingSettingsUiState(
     watchProgressSource: WatchProgressSource,
     librarySourceMode: LibrarySourceMode,
-    traktAuthenticated: Boolean,
-    simklAuthenticated: Boolean,
+    connectedProviderIds: Set<TrackingProviderId>?,
     simklPreferences: SimklTrackingPreferences
 ): TrackingSettingsUiState {
-    val connectedProviderIds = buildSet {
-        if (traktAuthenticated) add(TrackingProviderId.TRAKT)
-        if (simklAuthenticated) add(TrackingProviderId.SIMKL)
-    }
+    if (connectedProviderIds == null) return TrackingSettingsUiState()
     val effective = effectiveTrackingSourceSelection(
         requested = TrackingSourceSelection(watchProgressSource, librarySourceMode),
         connectedProviderIds = connectedProviderIds
@@ -94,7 +91,6 @@ internal fun trackingSettingsUiState(
         connectedProviderIds = connectedProviderIds,
         simklAnimeIdPreference = simklPreferences.animeIdPreference,
         simklRewatchMode = simklPreferences.rewatchMode,
-        simklRewatchNextUpMode = simklPreferences.rewatchNextUpMode,
         simklWatchedThresholdPercent = simklPreferences.watchedThresholdPercent,
         isReady = true
     )
@@ -105,8 +101,10 @@ class TrackingSettingsViewModel @Inject constructor(
     private val sourceController: TrackingSourceController,
     private val settingsDataStore: TraktSettingsDataStore,
     private val simklSyncRepository: SimklSyncRepository,
+    traktAuthDataStore: TraktAuthDataStore,
     private val simklAuthRepository: SimklAuthRepository,
-    traktAuthDataStore: TraktAuthDataStore
+    mdbListAuth: MdbListAuthStore,
+    profiles: ProfileManager
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(TrackingSettingsUiState())
     val uiState: StateFlow<TrackingSettingsUiState> = _uiState.asStateFlow()
@@ -114,44 +112,49 @@ class TrackingSettingsViewModel @Inject constructor(
     /**
      * Set when the user picked a rewatch mode the account plan cannot record.
      *
-     * Zámerne mimo [uiState]: ten stav sa pri každom emitovaní skladá znova z kombinovaných flow,
-     * takže príznak v ňom by dialóg zavrel pri prvej správe zo syncu.
+     * Deliberately outside [uiState]: that state is built again from the combined flows on every
+     * emission, so a flag in it would close the dialog on the first message from the sync.
      */
     private val _rewatchUpgradeRequested = MutableStateFlow(false)
     val rewatchUpgradeRequested: StateFlow<Boolean> = _rewatchUpgradeRequested.asStateFlow()
 
     init {
         viewModelScope.launch {
+            val connected = combine(traktAuthDataStore.state, simklAuthRepository.state, mdbListAuth.state, profiles.activeProfileId) { trakt, simkl, mdblist, profileId ->
+                if (mdblist.scope.profileId != profileId) null else buildSet<TrackingProviderId> {
+                    if (trakt.isAuthenticated) add(TrackingProviderId.TRAKT)
+                    if (simkl.isAuthenticated) add(TrackingProviderId.SIMKL)
+                    if (mdblist.isAuthenticated) add(TrackingProviderId.MDBLIST)
+                }
+            }
             val simklPreferences = combine(
                 settingsDataStore.simklAnimeIdPreference,
                 settingsDataStore.simklRewatchMode,
-                settingsDataStore.simklRewatchNextUpMode,
                 settingsDataStore.simklWatchedThresholdPercent
-            ) { animeIdPreference, rewatchMode, rewatchNextUpMode, watchedThresholdPercent ->
+            ) { animeIdPreference, rewatchMode, watchedThresholdPercent ->
                 SimklTrackingPreferences(
                     animeIdPreference = animeIdPreference,
                     rewatchMode = rewatchMode,
-                    rewatchNextUpMode = rewatchNextUpMode,
                     watchedThresholdPercent = watchedThresholdPercent
                 )
             }
             combine(
                 sourceController.watchProgressSource,
                 sourceController.librarySourceMode,
-                traktAuthDataStore.state,
-                simklAuthRepository.state,
+                connected,
                 simklPreferences
-            ) { watchProgressSource, librarySourceMode, traktState, simklState, preferences ->
+            ) { watchProgressSource, librarySourceMode, connectedProviderIds, preferences ->
                 trackingSettingsUiState(
                     watchProgressSource = watchProgressSource,
                     librarySourceMode = librarySourceMode,
-                    traktAuthenticated = traktState.isAuthenticated,
-                    simklAuthenticated = simklState.isAuthenticated,
+                    connectedProviderIds = connectedProviderIds,
                     simklPreferences = preferences
                 )
             }.collect { state ->
                 _uiState.value = state
-                sourceController.reconcileConnectedProviders(state.connectedProviderIds)
+                if (state.isReady && mdbListAuth.scope().profileId == profiles.activeProfileId.value) {
+                    sourceController.reconcileConnectedProviders(state.connectedProviderIds)
+                }
             }
         }
     }
@@ -183,37 +186,36 @@ class TrackingSettingsViewModel @Inject constructor(
      * saved and do nothing. `OFF` needs no plan and is never refused, which is what keeps the way
      * back always open.
      *
-     * TV nemá `LocalUriHandler`, ktorým mobile otvára stránku s ponukou Pro. ViewModel preto len
-     * povie, že plán nestačí, a obrazovka na to zobrazí dialóg s odkazom cez intent.
+     * TV has no `LocalUriHandler`, which mobile uses to open the page with the Pro offer. The
+     * ViewModel therefore only says the plan is not enough and the screen shows a dialog with the link.
      */
     fun setSimklRewatchMode(mode: SimklRewatchMode) {
         viewModelScope.launch {
-            if (mode == SimklRewatchMode.OFF) {
-                settingsDataStore.setSimklRewatchMode(mode)
-                return@launch
+            if (mode != SimklRewatchMode.OFF) {
+                val plan = simklAuthRepository.ensurePlanLoaded()
+                if (!isSimklRewatchModeSelectable(mode, plan)) {
+                    _rewatchUpgradeRequested.value = true
+                    return@launch
+                }
             }
-            val plan = simklAuthRepository.ensurePlanLoaded()
-            if (isSimklRewatchModeSelectable(mode, plan)) {
-                settingsDataStore.setSimklRewatchMode(mode)
-            } else {
-                _rewatchUpgradeRequested.value = true
+            settingsDataStore.setSimklRewatchMode(mode)
+            // The runs on the Continue Watching row follow the mode right away instead of at the next
+            // sync: the sessions the app already read are re-derived, and turning rewatches off drops
+            // the row's runs with them.
+            simklSyncRepository.refreshRewatchRuns()
+            if (mode != SimklRewatchMode.OFF &&
+                !simklSyncRepository.state.value.snapshot.rewatchSessionsComplete
+            ) {
+                // Only a snapshot whose sessions were never read needs the cold read; a complete one
+                // already holds them. The refresh runs on the repository's own scope, so leaving this
+                // screen cannot cancel it.
+                simklSyncRepository.refreshAsync(TrackingRefreshIntent.USER_INITIATED)
             }
         }
     }
 
     fun dismissRewatchUpgrade() {
         _rewatchUpgradeRequested.value = false
-    }
-
-    /**
-     * How much of a rewatch run has to be on the account before it offers the next episode.
-     *
-     * The runs are re-derived from the sessions the app already read, so the row follows the choice
-     * right away; without this the setting would only show up at the next sync and look broken.
-     */
-    suspend fun setSimklRewatchNextUpMode(mode: SimklRewatchNextUpMode) {
-        settingsDataStore.setSimklRewatchNextUpMode(mode)
-        simklSyncRepository.refreshRewatchRuns()
     }
 
     fun setSimklWatchedThresholdPercent(percent: Int) {

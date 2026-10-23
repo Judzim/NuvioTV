@@ -129,7 +129,8 @@ class SearchViewModelPaginationTest {
             skip: Int,
             skipStep: Int,
             extraArgs: Map<String, String>,
-            supportsSkip: Boolean
+            supportsSkip: Boolean,
+            posterScreen: com.nuvio.tv.core.poster.CustomPosterScreen
         ): Flow<NetworkResult<CatalogRow>> = flow {
             val query = extraArgs["search"].orEmpty()
             emit(NetworkResult.Loading)
@@ -226,6 +227,7 @@ class SearchViewModelPaginationTest {
             watchProgressRepository = watchProgress,
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
+            serverCatalog = mockk { every { searchAddons } returns flowOf(emptyList()) },
             context = mockk<Context>(relaxed = true)
         )
     }

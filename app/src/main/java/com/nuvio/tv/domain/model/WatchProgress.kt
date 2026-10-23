@@ -31,6 +31,8 @@ data class WatchProgress(
     override val trackingProviderId: String? = null,
     override val trackingProviderItemId: String? = null,
     override val trackingSourceUrl: String? = null,
+    val completionThresholdOverride: Float? = null,
+    val excludedNextUpSeasons: Set<Int> = emptySet(),
     /**
      * The threshold the row was reported with, as a fraction, for the rows where that number still
      * decides something.
@@ -44,6 +46,9 @@ data class WatchProgress(
      * and [progressPercentage] is compared against it. Null keeps the default of the source
      * ([COMPLETED_THRESHOLD], or [SIMKL_COMPLETED_THRESHOLD] for a Simkl playback row that arrived
      * without one).
+     *
+     * Held next to [completionThresholdOverride], which a source sets for its own rows; both end up
+     * deciding the same thing, but they are filled in by different producers.
      */
     val completionThresholdFraction: Float? = null,
     /**
@@ -70,6 +75,8 @@ data class WatchProgress(
         const val SOURCE_TRAKT_HISTORY = "trakt_history"
         const val SOURCE_TRAKT_SHOW_PROGRESS = "trakt_show_progress"
         const val SOURCE_SIMKL_PLAYBACK = "simkl_playback"
+        const val SOURCE_REMOTE_PLAYBACK = "remote_playback"
+        const val SOURCE_REMOTE_HISTORY = "remote_history"
         const val STARTED_THRESHOLD = 0.02f
         const val COMPLETED_THRESHOLD = 0.90f
         const val SIMKL_COMPLETED_THRESHOLD = 0.80f
@@ -102,8 +109,10 @@ data class WatchProgress(
     fun isInProgress(startThreshold: Float = STARTED_THRESHOLD, endThreshold: Float = completionThreshold()): Boolean =
         !isCompleted(endThreshold) && progressPercentage >= startThreshold
 
-    private fun completionThreshold(): Float = completionThresholdFraction
-        ?: if (source == SOURCE_SIMKL_PLAYBACK) SIMKL_COMPLETED_THRESHOLD else COMPLETED_THRESHOLD
+    private fun completionThreshold(): Float =
+        completionThresholdOverride?.takeIf { it.isFinite() && it > 0f && it <= 1f }
+            ?: completionThresholdFraction
+            ?: if (source == SOURCE_SIMKL_PLAYBACK) SIMKL_COMPLETED_THRESHOLD else COMPLETED_THRESHOLD
 
     /**
      * Returns the remaining time in milliseconds

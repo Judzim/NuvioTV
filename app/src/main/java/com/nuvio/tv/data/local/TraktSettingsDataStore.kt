@@ -8,7 +8,6 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.data.simkl.SimklRewatchMode
-import com.nuvio.tv.data.simkl.SimklRewatchNextUpMode
 import com.nuvio.tv.data.simkl.coerceSimklWatchedThresholdPercent
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +27,7 @@ import javax.inject.Singleton
 enum class WatchProgressSource {
     TRAKT,
     SIMKL,
+    MDBLIST,
     NUVIO_SYNC;
 
     companion object {
@@ -39,7 +39,8 @@ enum class WatchProgressSource {
 
 enum class MoreLikeThisSourcePreference {
     TRAKT,
-    TMDB
+    TMDB,
+    SIMKL
 }
 
 @Singleton
@@ -74,16 +75,17 @@ class TraktSettingsDataStore @Inject constructor(
     private val showMetaCommentsKey = booleanPreferencesKey("show_meta_comments")
     private val watchProgressSourceKey = stringPreferencesKey("watch_progress_source")
     private val librarySourceModeKey = stringPreferencesKey("library_source_mode")
+    private val rememberedWatchProgressSourceKey = stringPreferencesKey("remembered_watch_progress_source")
+    private val rememberedLibrarySourceModeKey = stringPreferencesKey("remembered_library_source_mode")
     private val moreLikeThisSourceKey = stringPreferencesKey("more_like_this_source")
     private val simklAnimeIdPreferenceKey = stringPreferencesKey("simkl_anime_id_preference")
     /*
-     * Rewatch nastavenia patria sem, hoci nesú SIMKL v názve: tento store je cross-provider
-     * tracking store a `simkl_anime_id_preference` je tu už vedľa nich. Kľúče sú nové, takže sa
-     * nič nemigruje. Režim sa ukladá ako `mode.name`, prah ako `Int` v rozsahu
-     * `coerceSimklWatchedThresholdPercent`.
+     * The rewatch settings belong here even though they carry SIMKL in the name: this store is the
+     * cross-provider tracking store and `simkl_anime_id_preference` already sits next to them. The
+     * keys are new, so nothing is migrated. The mode is stored as `mode.name`, the threshold as an
+     * `Int` inside `coerceSimklWatchedThresholdPercent`.
      */
     private val simklRewatchModeKey = stringPreferencesKey("simkl_rewatch_mode")
-    private val simklRewatchNextUpModeKey = stringPreferencesKey("simkl_rewatch_next_up_mode")
     private val simklWatchedThresholdPercentKey = intPreferencesKey("simkl_watched_threshold_percent")
 
     val continueWatchingDaysCap: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
@@ -220,6 +222,30 @@ class TraktSettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun getRememberedWatchProgressSource(profileId: Int): WatchProgressSource? {
+        val stored = store(profileId).data.first()[rememberedWatchProgressSourceKey]
+        return WatchProgressSource.entries.firstOrNull { it.name == stored }
+    }
+
+    suspend fun setRememberedWatchProgressSource(source: WatchProgressSource?, profileId: Int) {
+        store(profileId).edit { prefs ->
+            if (source == null) prefs.remove(rememberedWatchProgressSourceKey)
+            else prefs[rememberedWatchProgressSourceKey] = source.name
+        }
+    }
+
+    suspend fun getRememberedLibrarySourceMode(profileId: Int): LibrarySourceMode? {
+        val stored = store(profileId).data.first()[rememberedLibrarySourceModeKey]
+        return LibrarySourceMode.entries.firstOrNull { it.name == stored }
+    }
+
+    suspend fun setRememberedLibrarySourceMode(mode: LibrarySourceMode?, profileId: Int) {
+        store(profileId).edit { prefs ->
+            if (mode == null) prefs.remove(rememberedLibrarySourceModeKey)
+            else prefs[rememberedLibrarySourceModeKey] = mode.name
+        }
+    }
+
     val moreLikeThisSource: Flow<MoreLikeThisSourcePreference> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             val stored = prefs[moreLikeThisSourceKey]
@@ -255,19 +281,6 @@ class TraktSettingsDataStore @Inject constructor(
     suspend fun setSimklRewatchMode(mode: SimklRewatchMode) {
         store().edit { prefs ->
             prefs[simklRewatchModeKey] = mode.name
-        }
-    }
-
-    val simklRewatchNextUpMode: Flow<SimklRewatchNextUpMode> =
-        profileManager.activeProfileId.flatMapLatest { pid ->
-            factory.get(pid, FEATURE).data.map { prefs ->
-                SimklRewatchNextUpMode.fromStorage(prefs[simklRewatchNextUpModeKey])
-            }
-        }
-
-    suspend fun setSimklRewatchNextUpMode(mode: SimklRewatchNextUpMode) {
-        store().edit { prefs ->
-            prefs[simklRewatchNextUpModeKey] = mode.name
         }
     }
 

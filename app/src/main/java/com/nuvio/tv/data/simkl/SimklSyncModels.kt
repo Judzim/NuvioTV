@@ -182,7 +182,6 @@ data class SimklPlaybackSession(
 
 @Serializable
 data class SimklSyncSnapshot(
-    val schemaVersion: Int = 2,
     val isInitialized: Boolean = false,
     val watermark: String? = null,
     val activities: SimklActivities? = null,
@@ -195,10 +194,15 @@ data class SimklSyncSnapshot(
      */
     val rewatchRuns: List<RewatchRunPosition> = emptyList(),
     /**
-     * The sessions [rewatchRuns] were derived from, kept so a change of the next up preference can
+     * The sessions [rewatchRuns] were derived from, kept so a change of the rewatch mode can
      * re-derive them without another read of the account.
      */
     val rewatchSessions: List<SimklLibraryEntry> = emptyList(),
+    /**
+     * Whether [rewatchSessions] were read without the watermark, so a later read may take the delta.
+     * A snapshot saved before this field existed carries the default and gets one full read.
+     */
+    val rewatchSessionsComplete: Boolean = false,
     val lastSyncedAtEpochMs: Long? = null,
     val lastCheckedAtEpochMs: Long? = null
 )
