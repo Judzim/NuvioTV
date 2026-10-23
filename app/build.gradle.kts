@@ -286,7 +286,8 @@ android {
         }
         create("benchmark") {
             initWith(buildTypes.getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
+            // The test APK must install over the previous release-signed test build.
+            signingConfig = signingConfigs.getByName("release")
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
