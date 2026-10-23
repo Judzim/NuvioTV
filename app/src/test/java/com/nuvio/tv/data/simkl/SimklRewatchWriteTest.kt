@@ -53,6 +53,23 @@ class SimklRewatchWriteTest {
     }
 
     @Test
+    fun `a rewatch removal names the session and keeps the episode coordinates`() {
+        val body = buildSimklRewatchRemovalBody(
+            listOf(show(episode = TrackingEpisode(season = 2, number = 7))),
+            8975L
+        ).asObject()
+
+        val showItem = body.getValue("shows").jsonArray.single().jsonObject
+        // Without the session id the same request would clear the canonical watch instead.
+        assertEquals("8975", showItem.getValue("rewatch_id").jsonPrimitive.content)
+        assertNull(showItem["is_rewatch"])
+        assertNull(showItem["status"])
+        val episode = showItem.getValue("seasons").jsonArray.single().jsonObject
+            .getValue("episodes").jsonArray.single().jsonObject
+        assertEquals(7, episode.getValue("number").jsonPrimitive.content.toInt())
+    }
+
+    @Test
     fun `a rewatch write is an episode write and only it carries the flag`() {
         val rewatch = buildSimklHistoryMutationBody(
             listOf(TrackingHistoryItem(show(episode = TrackingEpisode(season = 2, number = 7)), WATCHED_AT)),

@@ -94,4 +94,32 @@ class SimklTrackingHistoryWriter @Inject constructor(
             }
         )
     }
+
+    /**
+     * Removes one episode from the rewatch session that holds it, leaving the original watch alone.
+     *
+     * The session id is read from the same stored sessions the detail screen marks the episode from.
+     * A removal that cannot name one is not sent: without the id Simkl would clear the canonical
+     * watch instead.
+     */
+    suspend fun removeRewatchFromHistory(
+        profileId: Int,
+        items: Collection<TrackingMediaReference>
+    ): TrackingMutationResult? {
+        if (profileId != profileManager.activeProfileId.value) return null
+        syncRepository.ensureLoaded()
+        val snapshot = syncRepository.state.value.snapshot
+        val candidates = items.map { ref ->
+            snapshot.enrichMediaReference(ref).resolveAnimeEpisodeForSimkl()
+        }
+        val media = candidates.singleOrNull() ?: return null
+        val episode = media.episode ?: return null
+        val season = episode.season ?: return null
+        val rewatchId = snapshot.rewatchSessions.activeRewatchSessionIdForEpisode(
+            media = media,
+            seasonNumber = season,
+            episodeNumber = episode.number
+        ) ?: return null
+        return service.removeRewatchFromHistory(candidates, rewatchId)
+    }
 }

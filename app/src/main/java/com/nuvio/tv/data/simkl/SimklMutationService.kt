@@ -141,6 +141,31 @@ class SimklMutationService internal constructor(
     }
 
     /**
+     * Removes one episode from a named rewatch session, leaving the canonical watch in place.
+     *
+     * The removal endpoint accepts the session id next to the episode coordinates; a request without
+     * it addresses the episode's canonical watch instead.
+     */
+    suspend fun removeRewatchFromHistory(
+        items: Collection<TrackingMediaReference>,
+        rewatchId: Long
+    ): TrackingMutationResult {
+        val candidates = items.validated()
+        if (candidates.isEmpty()) return TrackingMutationResult(attemptedCount = 0)
+        val response = client.execute(
+            SimklApiRequest(
+                method = SimklHttpMethod.POST,
+                path = "/sync/history/remove",
+                body = buildSimklRewatchRemovalBody(candidates, rewatchId, json),
+                retryPolicy = SimklRetryPolicy.SYNC_WRITE
+            )
+        )
+        val receipt = response.toHistoryRemovalReceipt(candidates, json)
+        onMutationCommitted(receipt)
+        return receipt.result
+    }
+
+    /**
      * Reports one playback event to Simkl.
      *
      * The call carries [completionThresholdPercent] as `min_progress`, so the account judges the stop

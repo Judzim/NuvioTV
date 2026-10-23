@@ -86,6 +86,25 @@ fun buildSimklHistoryRemovalBody(
     )
 )
 
+/**
+ * Removes one viewing from a named rewatch session.
+ *
+ * The session id rides on the show entry, next to the episode coordinates, which is the shape
+ * Simkl's history removal accepts. Without the id the same request would clear the canonical watch
+ * and leave the rewatch behind.
+ */
+fun buildSimklRewatchRemovalBody(
+    items: Collection<TrackingMediaReference>,
+    rewatchId: Long,
+    json: Json = SimklMutationJson
+): String = json.encodeToString(
+    buildHistoryRequest(
+        items = items.map { media -> TrackingHistoryItem(media = media, rewatchId = rewatchId) },
+        includeWatchedAt = false,
+        isRewatch = false
+    )
+)
+
 fun buildSimklScrobbleBody(
     event: TrackingScrobbleEvent,
     json: Json = SimklMutationJson

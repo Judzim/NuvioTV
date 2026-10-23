@@ -413,6 +413,7 @@ class MetaDetailsViewModel @Inject constructor(
             MetaDetailsEvent.OnToggleMovieWatched -> toggleMovieWatched()
             is MetaDetailsEvent.OnToggleEpisodeWatched -> toggleEpisodeWatched(event.video)
             is MetaDetailsEvent.OnMarkEpisodeRewatched -> markEpisodeRewatched(event.video)
+            is MetaDetailsEvent.OnUnmarkEpisodeRewatched -> unmarkEpisodeRewatched(event.video)
             is MetaDetailsEvent.OnMarkSeasonWatched -> markSeasonWatched(event.season)
             is MetaDetailsEvent.OnMarkSeasonUnwatched -> markSeasonUnwatched(event.season)
             is MetaDetailsEvent.OnMarkPreviousEpisodesWatched -> markPreviousEpisodesWatched(event.video)
@@ -2657,6 +2658,63 @@ class MetaDetailsViewModel @Inject constructor(
                 simklSyncRepository.refresh(TrackingRefreshIntent.USER_INITIATED)
             }.onFailure { error ->
                 Log.w(TAG, "Could not refresh Simkl after a manual rewatch mark", error)
+            }
+            _uiState.update {
+                it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys - pendingKey)
+            }
+        }
+    }
+
+    /**
+     * Drops the visible rewatch of an episode without touching its original watch.
+     *
+     * The removal names the rewatch session the episode belongs to, so Simkl deletes only that
+     * viewing. The writer reads the session from the account snapshot; when it cannot name one, no
+     * request is sent.
+     */
+    private fun unmarkEpisodeRewatched(video: Video) {
+        val meta = _uiState.value.meta ?: return
+        val season = video.season ?: return
+        val episode = video.episode ?: return
+        val pendingKey = episodePendingKey(video)
+        if (_uiState.value.episodeWatchedPendingKeys.contains(pendingKey)) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys + pendingKey)
+            }
+            runCatching {
+                val media = buildTrackingMediaReference(
+                    contentType = meta.apiType,
+                    parentMetaId = _effectiveContentId.value,
+                    videoId = video.id,
+                    title = meta.name,
+                    releaseInfo = meta.releaseInfo,
+                    seasonNumber = season,
+                    episodeNumber = episode,
+                    episodeTitle = video.title
+                )
+                val result = simklTrackingHistoryWriter.removeRewatchFromHistory(
+                    profileId = profileManager.activeProfileId.value,
+                    items = listOf(media)
+                )
+                check(result != null && result.notFoundCount == 0) {
+                    "Simkl did not find the rewatch to remove"
+                }
+                showMessage(localizedContext.getString(R.string.detail_episode_marked_not_rewatched))
+            }.onFailure { error ->
+                showMessage(
+                    message = error.message ?: context.getString(R.string.detail_error_update_episode_watched_failed),
+                    isError = true
+                )
+            }
+            // The removed viewing is not gone from the snapshot until a read sees it; re-deriving
+            // only re-reads what is already stored.
+            runCatching {
+                delay(1_500)
+                simklSyncRepository.refresh(TrackingRefreshIntent.USER_INITIATED)
+            }.onFailure { error ->
+                Log.w(TAG, "Could not refresh Simkl after a rewatch removal", error)
             }
             _uiState.update {
                 it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys - pendingKey)

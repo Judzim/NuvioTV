@@ -208,6 +208,30 @@ internal fun List<SimklLibraryEntry>.activeRewatchSessionId(media: TrackingMedia
 }
 
 /**
+ * The running session that actually holds this episode.
+ *
+ * A mark only needs the show's running session; a removal must name the session the episode was
+ * rewatched in, or it would clear a different run.
+ */
+internal fun List<SimklLibraryEntry>.activeRewatchSessionIdForEpisode(
+    media: TrackingMediaReference,
+    seasonNumber: Int,
+    episodeNumber: Int
+): Long? {
+    val target = media.toSimklMedia()
+    return filter { entry ->
+        entry.isRewatch &&
+            entry.media?.matchesTarget(target) == true &&
+            entry.isRunningRewatchSession() &&
+            entry.rewatchedEpisodes().any { episode ->
+                episode.seasonNumber == seasonNumber && episode.episodeNumber == episodeNumber
+            }
+    }
+        .maxByOrNull { entry -> entry.lastWatchedAt?.let(::parseSimklUtcEpochMs) ?: Long.MIN_VALUE }
+        ?.rewatchId
+}
+
+/**
  * Whether the account already holds a watch of this item's title, which a manual mark reads as a
  * possible repeat viewing.
  *

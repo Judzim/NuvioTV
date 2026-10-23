@@ -205,6 +205,8 @@
     <string name="episodes_dialog_subtitle">Akcie epizódy</string>
     <string name="episodes_mark_watched">Označiť ako videné</string>
     <string name="episodes_mark_unwatched">Označiť ako nevidené</string>
+    <string name="episodes_mark_rewatched">Označiť ako opakované pozretie</string>
+    <string name="episodes_mark_not_rewatched">Zrušiť opakované pozretie</string>
     <string name="episodes_mark_season_watched">Označiť sériu ako videnú</string>
     <string name="episodes_mark_season_unwatched">Označiť sériu ako nevidenú</string>
     <string name="episodes_mark_previous_watched">Označiť predchádzajúce epizódy ako videné</string>
@@ -219,6 +221,8 @@
     <string name="detail_removed_from_library">Odstránené z knižnice</string>
     <string name="detail_episode_marked_watched">Epizóda označená ako videná</string>
     <string name="detail_episode_marked_unwatched">Epizóda označená ako nevidená</string>
+    <string name="detail_episode_marked_rewatched">Epizóda označená ako opakované pozretie</string>
+    <string name="detail_episode_marked_not_rewatched">Opakované pozretie zrušené</string>
     <string name="detail_lists_updated">Zoznamy aktualizované</string>
     <string name="detail_movie_marked_watched">Označené ako videné</string>
     <string name="detail_movie_marked_unwatched">Označené ako nevidené</string>

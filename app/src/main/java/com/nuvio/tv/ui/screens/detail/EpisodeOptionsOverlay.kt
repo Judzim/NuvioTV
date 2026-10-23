@@ -108,6 +108,7 @@ internal fun EpisodeOptionsOverlay(
     showPlayManually: Boolean = false,
     onToggleWatched: () -> Unit,
     onMarkRewatched: () -> Unit = {},
+    onUnmarkRewatched: () -> Unit = {},
     onMarkSeasonWatched: () -> Unit = {},
     onMarkSeasonUnwatched: () -> Unit = {},
     onMarkPreviousEpisodesWatched: () -> Unit = {},
@@ -192,15 +193,22 @@ internal fun EpisodeOptionsOverlay(
     }
     val actions = buildList {
         if (showWatchedActions) {
+            if (isWatched && hasActiveRewatch) {
+                add(
+                    EpisodeOverlayAction(
+                        label = stringResource(
+                            if (isRewatched) R.string.episodes_mark_not_rewatched
+                            else R.string.episodes_mark_rewatched
+                        ),
+                        enabled = !isPending,
+                        onClick = if (isRewatched) onUnmarkRewatched else onMarkRewatched
+                    )
+                )
+            }
             add(
                 EpisodeOverlayAction(
                     label = if (isWatched) {
-                        // A rewatched episode has more than one watch; the removal this action
-                        // sends is the episode-level one, so the label says what it clears.
-                        stringResource(
-                            if (isRewatched) R.string.episodes_mark_unwatched_all
-                            else R.string.episodes_mark_unwatched
-                        )
+                        stringResource(R.string.episodes_mark_unwatched)
                     } else {
                         stringResource(R.string.episodes_mark_watched)
                     },
@@ -208,15 +216,6 @@ internal fun EpisodeOptionsOverlay(
                     onClick = onToggleWatched
                 )
             )
-            if (isWatched && hasActiveRewatch && !isRewatched) {
-                add(
-                    EpisodeOverlayAction(
-                        label = stringResource(R.string.episodes_mark_rewatched),
-                        enabled = !isPending,
-                        onClick = onMarkRewatched
-                    )
-                )
-            }
             add(
                 EpisodeOverlayAction(
                     label = if (isSeasonFullyWatched) {
