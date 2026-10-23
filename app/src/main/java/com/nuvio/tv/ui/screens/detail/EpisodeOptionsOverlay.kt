@@ -90,6 +90,8 @@ internal fun EpisodeOptionsOverlay(
     episode: Video,
     imdbRating: Double? = null,
     isWatched: Boolean,
+    isRewatched: Boolean = false,
+    hasActiveRewatch: Boolean = false,
     blurUnwatchedEpisodes: Boolean = false,
     style: EpisodeOptionsOverlayStyle = EpisodeOptionsOverlayStyle.ARTWORK,
     isPending: Boolean,
@@ -105,6 +107,7 @@ internal fun EpisodeOptionsOverlay(
     onPlayManually: () -> Unit = {},
     showPlayManually: Boolean = false,
     onToggleWatched: () -> Unit,
+    onMarkRewatched: () -> Unit = {},
     onMarkSeasonWatched: () -> Unit = {},
     onMarkSeasonUnwatched: () -> Unit = {},
     onMarkPreviousEpisodesWatched: () -> Unit = {},
@@ -192,7 +195,12 @@ internal fun EpisodeOptionsOverlay(
             add(
                 EpisodeOverlayAction(
                     label = if (isWatched) {
-                        stringResource(R.string.episodes_mark_unwatched)
+                        // A rewatched episode has more than one watch; the removal this action
+                        // sends is the episode-level one, so the label says what it clears.
+                        stringResource(
+                            if (isRewatched) R.string.episodes_mark_unwatched_all
+                            else R.string.episodes_mark_unwatched
+                        )
                     } else {
                         stringResource(R.string.episodes_mark_watched)
                     },
@@ -200,6 +208,15 @@ internal fun EpisodeOptionsOverlay(
                     onClick = onToggleWatched
                 )
             )
+            if (isWatched && hasActiveRewatch && !isRewatched) {
+                add(
+                    EpisodeOverlayAction(
+                        label = stringResource(R.string.episodes_mark_rewatched),
+                        enabled = !isPending,
+                        onClick = onMarkRewatched
+                    )
+                )
+            }
             add(
                 EpisodeOverlayAction(
                     label = if (isSeasonFullyWatched) {

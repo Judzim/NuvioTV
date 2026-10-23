@@ -26,7 +26,9 @@ import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
+import com.nuvio.tv.core.tracking.TrackingHistoryItem
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
+import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import com.nuvio.tv.data.simkl.rewatchedEpisodesOf
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.domain.model.Meta
@@ -108,6 +110,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     private val simklSyncRepository: com.nuvio.tv.data.simkl.SimklSyncRepository,
+    private val simklTrackingHistoryWriter: com.nuvio.tv.data.simkl.SimklTrackingHistoryWriter,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String = savedStateHandle["itemId"] ?: ""
@@ -407,6 +410,7 @@ class MetaDetailsViewModel @Inject constructor(
             MetaDetailsEvent.OnRetrySharedTrailer -> retrySharedTrailer()
             MetaDetailsEvent.OnToggleMovieWatched -> toggleMovieWatched()
             is MetaDetailsEvent.OnToggleEpisodeWatched -> toggleEpisodeWatched(event.video)
+            is MetaDetailsEvent.OnMarkEpisodeRewatched -> markEpisodeRewatched(event.video)
             is MetaDetailsEvent.OnMarkSeasonWatched -> markSeasonWatched(event.season)
             is MetaDetailsEvent.OnMarkSeasonUnwatched -> markSeasonUnwatched(event.season)
             is MetaDetailsEvent.OnMarkPreviousEpisodesWatched -> markPreviousEpisodesWatched(event.video)
@@ -2579,6 +2583,60 @@ class MetaDetailsViewModel @Inject constructor(
                 )
             }
 
+            _uiState.update {
+                it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys - pendingKey)
+            }
+        }
+    }
+
+    /**
+     * Writes an episode the account already watched into the open rewatch run.
+     *
+     * The mark goes through the same history write as a first watch; Simkl turns a mark of an
+     * already watched episode into a repeat viewing and pins the run the account holds. The local
+     * watched state does not change, so the episode stays watched after the mark.
+     */
+    private fun markEpisodeRewatched(video: Video) {
+        val meta = _uiState.value.meta ?: return
+        val season = video.season ?: return
+        val episode = video.episode ?: return
+        val pendingKey = episodePendingKey(video)
+        if (_uiState.value.episodeWatchedPendingKeys.contains(pendingKey)) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys + pendingKey)
+            }
+            runCatching {
+                // Only Simkl hears about this one: a rewatch is its concept, and the shared mark
+                // path would also write the viewing to Trakt or MDBList.
+                val media = buildTrackingMediaReference(
+                    contentType = meta.apiType,
+                    parentMetaId = _effectiveContentId.value,
+                    videoId = video.id,
+                    title = meta.name,
+                    releaseInfo = meta.releaseInfo,
+                    seasonNumber = season,
+                    episodeNumber = episode,
+                    episodeTitle = video.title
+                )
+                val result = simklTrackingHistoryWriter.addToHistory(
+                    profileId = profileManager.activeProfileId.value,
+                    // The writer owns the mode and plan gate: it marks the item a rewatch and pins
+                    // the open run only where the account can take one.
+                    items = listOf(TrackingHistoryItem(media = media))
+                )
+                check(result.notFoundCount == 0) { "Simkl did not match the episode" }
+                // The write is on the account; a session can take a moment to publish it.
+                delay(1_500)
+                simklSyncRepository.refreshRewatchRuns()
+                showMessage(localizedContext.getString(R.string.detail_episode_marked_rewatched))
+            }.onFailure { error ->
+                showMessage(
+                    message = error.message ?: context.getString(com.nuvio.tv.R.string.detail_error_update_episode_watched_failed),
+                    isError = true
+                )
+            }
             _uiState.update {
                 it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys - pendingKey)
             }
