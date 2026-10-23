@@ -45,6 +45,15 @@ import javax.inject.Singleton
 
 internal fun PlayerSettings.shouldSendSkipSegments(): Boolean = externalPlayerSendSkipSegments
 
+/**
+ * The segment types and the margin `PlayerContentEndPolicy` uses for the content end.
+ *
+ * The tracker needs the same point for the Simkl rewatch decision, and it sits in `core`, below
+ * the player package. Kept here as a copy rather than importing the UI: the two must move together.
+ */
+private val EXTERNAL_CONTENT_END_TYPES = setOf("outro", "ed", "mixed-ed", "movie-credits")
+private const val EXTERNAL_CONTENT_END_TOLERANCE_SECONDS = 5.0
+
 internal fun externalSkipIntervals(
     intervals: List<SkipInterval>
 ): List<SkipInterval> = intervals.map {
@@ -257,6 +266,9 @@ class ExternalPlaybackTracker @Inject constructor(
     private var pendingCloudSessionToken: String? = null
     private var pendingStartPositionMs: Long = 0L
 
+    /** Where the credits start for the pending external playback, when the launcher resolved them. */
+    private var pendingContentEndSeconds: Double? = null
+
     private val autoPlayNextNavigationEvents = ExternalAutoNextNavigationEvents(
         maxAgeMs = AUTO_NEXT_OVERLAY_TIMEOUT_MS
     )
@@ -463,6 +475,7 @@ class ExternalPlaybackTracker @Inject constructor(
      * content can't be identified, or nothing is found.
      */
     private suspend fun resolveSkipSegmentsJson(metadata: ExternalPlaybackMetadata): String? {
+        pendingContentEndSeconds = null
         if (metadata.contentType.equals("cloud", ignoreCase = true)) return null
         val settings = playerSettingsDataStore.playerSettings.first()
         if (!settings.shouldSendSkipSegments()) return null
@@ -497,6 +510,9 @@ class ExternalPlaybackTracker @Inject constructor(
                 }
             }
         }
+        pendingContentEndSeconds = intervals
+            ?.filter { interval -> interval.type in EXTERNAL_CONTENT_END_TYPES }
+            ?.minOfOrNull { interval -> interval.startTime }
         if (intervals.isNullOrEmpty()) return null
 
         val forwardedIntervals = externalSkipIntervals(intervals)
@@ -1429,6 +1445,21 @@ class ExternalPlaybackTracker @Inject constructor(
             pendingStartPositionMs > 0L &&
             pendingStartPositionMs.toDouble() / effectiveDuration.toDouble() * 100.0 >=
                 TRACKING_COMPLETION_BAR_PERCENT
+        val startProgressPercent = if (effectiveDuration > 0L && pendingStartPositionMs > 0L) {
+            pendingStartPositionMs.toDouble() / effectiveDuration.toDouble() * 100.0
+        } else {
+            null
+        }
+        val contentEndPercent = pendingContentEndSeconds?.let { seconds ->
+            if (effectiveDuration <= 0L) {
+                null
+            } else {
+                val markerPercent = seconds * 1000.0 / effectiveDuration.toDouble() * 100.0
+                val tolerancePercent = EXTERNAL_CONTENT_END_TOLERANCE_SECONDS * 1000.0 /
+                    effectiveDuration.toDouble() * 100.0
+                (markerPercent - tolerancePercent).coerceAtLeast(0.0)
+            }
+        }
 
         scope.launch {
             val progress = WatchProgress(
@@ -1469,7 +1500,8 @@ class ExternalPlaybackTracker @Inject constructor(
                         TrackingScrobbleEvent(
                             scrobbleItem,
                             0.0,
-                            hasPlaybackSession = !startedAboveCompletionBar
+                            hasPlaybackSession = !startedAboveCompletionBar,
+                            startProgressPercent = startProgressPercent
                         )
                     )
                     trackingScrobbleCoordinator.scrobble(
@@ -1477,7 +1509,9 @@ class ExternalPlaybackTracker @Inject constructor(
                         TrackingScrobbleEvent(
                             scrobbleItem,
                             progressPercent.toDouble(),
-                            hasPlaybackSession = !startedAboveCompletionBar
+                            contentEndPercent = contentEndPercent,
+                            hasPlaybackSession = !startedAboveCompletionBar,
+                            startProgressPercent = startProgressPercent
                         )
                     )
                 }
