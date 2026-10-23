@@ -385,6 +385,7 @@ fun EpisodesRow(
     onEpisodeManualPlayClick: (Video) -> Unit = onEpisodeClick,
     onEpisodeStartFromBeginningClick: (Video) -> Unit = onEpisodeClick,
     onToggleEpisodeWatched: (Video) -> Unit,
+    onMarkEpisodeRewatched: (Video) -> Unit = {},
     showManualPlayOption: Boolean = false,
     onMarkSeasonWatched: (Int) -> Unit = {},
     onMarkSeasonUnwatched: (Int) -> Unit = {},
@@ -578,6 +579,10 @@ fun EpisodesRow(
                 selectedEpisode.episode?.let { episode -> episodeRatings[season to episode] }
             },
             isWatched = selectedWatched,
+            isRewatched = selectedEpisode.season?.let { season ->
+                selectedEpisode.episode?.let { episode -> rewatchedEpisodes.contains(season to episode) }
+            } ?: false,
+            hasActiveRewatch = rewatchedEpisodes.isNotEmpty(),
             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
             style = episodeOptionsOverlayStyle,
             isPending = isPending,
@@ -615,6 +620,10 @@ fun EpisodesRow(
             showPlayManually = showManualPlayOption && canPlayEpisode(selectedEpisode),
             onToggleWatched = {
                 onToggleEpisodeWatched(selectedEpisode)
+                optionsEpisode = null
+            },
+            onMarkRewatched = {
+                onMarkEpisodeRewatched(selectedEpisode)
                 optionsEpisode = null
             },
             onMarkSeasonWatched = {

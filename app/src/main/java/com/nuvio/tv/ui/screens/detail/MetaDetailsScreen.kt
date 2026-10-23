@@ -955,6 +955,9 @@ fun MetaDetailsScreen(
                     onToggleEpisodeWatched = { video ->
                         viewModel.onEvent(MetaDetailsEvent.OnToggleEpisodeWatched(video))
                     },
+                    onMarkEpisodeRewatched = { video ->
+                        viewModel.onEvent(MetaDetailsEvent.OnMarkEpisodeRewatched(video))
+                    },
                     onMarkSeasonWatched = { season ->
                         viewModel.onEvent(MetaDetailsEvent.OnMarkSeasonWatched(season))
                     },
@@ -1251,6 +1254,7 @@ private fun MetaDetailsContent(
     onLibraryLongPress: () -> Unit,
     onToggleMovieWatched: () -> Unit,
     onToggleEpisodeWatched: (Video) -> Unit,
+    onMarkEpisodeRewatched: (Video) -> Unit = {},
     onMarkSeasonWatched: (Int) -> Unit,
     onMarkSeasonUnwatched: (Int) -> Unit,
     onMarkPreviousEpisodesWatched: (Video) -> Unit,
@@ -2586,6 +2590,7 @@ private fun MetaDetailsContent(
                             },
                             showManualPlayOption = showManualPlayOption,
                             onToggleEpisodeWatched = onToggleEpisodeWatched,
+                            onMarkEpisodeRewatched = onMarkEpisodeRewatched,
                             onMarkSeasonWatched = onMarkSeasonWatched,
                             onMarkSeasonUnwatched = onMarkSeasonUnwatched,
                             isSeasonFullyWatched = isSeasonFullyWatched(selectedSeason),
