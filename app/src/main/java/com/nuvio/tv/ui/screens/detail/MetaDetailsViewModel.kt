@@ -2701,6 +2701,9 @@ class MetaDetailsViewModel @Inject constructor(
                 check(result != null && result.notFoundCount == 0) {
                     "Simkl did not find the rewatch to remove"
                 }
+                // The committed receipt dropped the episode from the running session; re-read the
+                // set so the original watch gets its faded marker back at once.
+                refreshRewatchEpisodes()
                 showMessage(localizedContext.getString(R.string.detail_episode_marked_not_rewatched))
             }.onFailure { error ->
                 showMessage(
