@@ -205,17 +205,21 @@ internal fun EpisodeOptionsOverlay(
                     )
                 )
             }
-            add(
-                EpisodeOverlayAction(
-                    label = if (isWatched) {
-                        stringResource(R.string.episodes_mark_unwatched)
-                    } else {
-                        stringResource(R.string.episodes_mark_watched)
-                    },
-                    enabled = !isPending,
-                    onClick = onToggleWatched
+            // A recorded rewatch owns the episode until it is removed: only the rewatch action
+            // shows, and the original watch can be cleared after the rewatch is gone.
+            if (!isRewatched) {
+                add(
+                    EpisodeOverlayAction(
+                        label = if (isWatched) {
+                            stringResource(R.string.episodes_mark_unwatched)
+                        } else {
+                            stringResource(R.string.episodes_mark_watched)
+                        },
+                        enabled = !isPending,
+                        onClick = onToggleWatched
+                    )
                 )
-            )
+            }
             add(
                 EpisodeOverlayAction(
                     label = if (isSeasonFullyWatched) {
