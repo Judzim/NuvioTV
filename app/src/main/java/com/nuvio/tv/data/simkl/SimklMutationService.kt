@@ -160,7 +160,7 @@ class SimklMutationService internal constructor(
                 retryPolicy = SimklRetryPolicy.SYNC_WRITE
             )
         )
-        val receipt = response.toHistoryRemovalReceipt(candidates, json)
+        val receipt = response.toHistoryRemovalReceipt(candidates, json, rewatchId)
         onMutationCommitted(receipt)
         return receipt.result
     }
