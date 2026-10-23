@@ -28,6 +28,7 @@ import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.core.tracking.TrackingHistoryItem
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import com.nuvio.tv.data.simkl.rewatchedEpisodesOf
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
@@ -2627,15 +2628,21 @@ class MetaDetailsViewModel @Inject constructor(
                     items = listOf(TrackingHistoryItem(media = media))
                 )
                 check(result.notFoundCount == 0) { "Simkl did not match the episode" }
-                // The write is on the account; a session can take a moment to publish it.
-                delay(1_500)
-                simklSyncRepository.refreshRewatchRuns()
                 showMessage(localizedContext.getString(R.string.detail_episode_marked_rewatched))
             }.onFailure { error ->
                 showMessage(
                     message = error.message ?: context.getString(com.nuvio.tv.R.string.detail_error_update_episode_watched_failed),
                     isError = true
                 )
+            }
+            // The run this write opened or extended is not in the snapshot until a read sees it, and
+            // re-deriving the runs only re-reads what is already stored. A failed read must not turn
+            // a recorded mark into an error, so it stays out of the write's result.
+            runCatching {
+                delay(1_500)
+                simklSyncRepository.refresh(TrackingRefreshIntent.USER_INITIATED)
+            }.onFailure { error ->
+                Log.w(TAG, "Could not refresh Simkl after a manual rewatch mark", error)
             }
             _uiState.update {
                 it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys - pendingKey)
