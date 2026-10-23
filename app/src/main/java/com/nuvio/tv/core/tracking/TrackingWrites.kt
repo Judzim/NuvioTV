@@ -102,6 +102,16 @@ data class TrackingScrobbleEvent(
     val hasPlaybackSession: Boolean = false,
 
     /**
+     * Where the playback began, in percent of its duration, when the player reported its start.
+     *
+     * A playback that resumes above [TRACKING_COMPLETION_BAR_PERCENT] is sessionless for the
+     * trackers that record a watch on a stop, but the point that ends the viewing can be higher
+     * than that bar. Simkl reads this to tell a resumed viewing from the tail of a finished one.
+     * Null when the caller does not report it (an external player).
+     */
+    val startProgressPercent: Double? = null,
+
+    /**
      * Identifies one run of the player for the item.
      *
      * A tracker that records a watch on a stop uses it to collapse a completion it already recorded

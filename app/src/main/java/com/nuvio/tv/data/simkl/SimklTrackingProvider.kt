@@ -93,6 +93,16 @@ class SimklTrackingScrobbler @Inject constructor(
         if (runningSessionId != null) {
             rewatchConsentRepository.releaseGrant(enrichedEvent.media)
         }
+        val playbackHadSession = simklPlaybackHadSession(
+            hasPlaybackSession = enrichedEvent.hasPlaybackSession,
+            startProgressPercent = enrichedEvent.startProgressPercent,
+            completionThresholdPercent = completionThresholdPercent
+        )
+        Log.d(
+            TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
+            "simkl rewatch session start=${enrichedEvent.startProgressPercent} " +
+                "threshold=$completionThresholdPercent hadSession=$playbackHadSession"
+        )
         val recordRewatch = shouldRecordSimklRewatchOnStop(
             mode = mode,
             accountType = accountType,
@@ -101,7 +111,7 @@ class SimklTrackingScrobbler @Inject constructor(
             completionThresholdPercent = completionThresholdPercent,
             hasRunningSession = runningSessionId != null,
             consented = rewatchConsentRepository.grantedFor(enrichedEvent.media),
-            hasPlaybackSession = enrichedEvent.hasPlaybackSession
+            hasPlaybackSession = playbackHadSession
         )
         val result = mutationService.scrobble(
             action = action,

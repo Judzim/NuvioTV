@@ -80,6 +80,36 @@ class SimklRewatchPolicyTest {
     }
 
     @Test
+    fun `a resume below the Simkl threshold keeps the viewing that started`() {
+        // The player's bar is 80 and the completion point is 87: a pause at 82 is still unfinished.
+        assertTrue(simklPlaybackHadSession(false, 82.0, 87.0))
+        assertFalse(simklPlaybackHadSession(false, 90.0, 87.0))
+        assertFalse(simklPlaybackHadSession(false, 87.0, 87.0))
+        assertTrue(simklPlaybackHadSession(true, 90.0, 87.0))
+        assertFalse(simklPlaybackHadSession(false, null, 87.0))
+
+        // The derived session is what the policy sees: the same stop writes or stays out by it.
+        assertTrue(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                progressPercent = 100.0,
+                completionThresholdPercent = 87.0,
+                hasPlaybackSession = simklPlaybackHadSession(false, 82.0, 87.0),
+            )
+        )
+        assertFalse(
+            record(
+                mode = SimklRewatchMode.AUTOMATIC,
+                accountType = "pro",
+                progressPercent = 100.0,
+                completionThresholdPercent = 87.0,
+                hasPlaybackSession = simklPlaybackHadSession(false, 90.0, 87.0),
+            )
+        )
+    }
+
+    @Test
     fun `the threshold Simkl is told is a whole number inside its own range`() {
         // Simkl drops the decimals, so the client decides with the same floored number it sends.
         assertEquals(96, simklMinProgressPercent(96.0))

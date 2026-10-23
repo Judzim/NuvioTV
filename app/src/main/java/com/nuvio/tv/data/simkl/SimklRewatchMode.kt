@@ -162,6 +162,22 @@ internal fun simklScrobbleQuery(
 }
 
 /**
+ * Whether the playback behind a stop had a session for Simkl.
+ *
+ * A playback that began below the player's completion bar was reported from its start, and the
+ * session is the one the stop ends. A playback that resumed above that bar is sessionless, but
+ * Simkl's own completion point can be higher than the bar: a resume at 82 with a threshold of 87
+ * is still an unfinished viewing and may open a rewatch when it ends. A start at or above the
+ * threshold is the tail of a viewing the account already counted, and stays out.
+ */
+internal fun simklPlaybackHadSession(
+    hasPlaybackSession: Boolean,
+    startProgressPercent: Double?,
+    completionThresholdPercent: Double,
+): Boolean = hasPlaybackSession ||
+    (startProgressPercent != null && startProgressPercent < completionThresholdPercent)
+
+/**
  * Whether the scrobble call itself should carry `allow_rewatch=yes`.
  *
  * [AUTOMATIC] asks for a rewatch on every finished playback, as long as the playback had a session

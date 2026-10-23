@@ -855,6 +855,7 @@ internal fun PlayerRuntimeController.refreshScrobbleItem() {
     scrobbleStartRequestGeneration++
     hasSentCompletionScrobbleForCurrentItem = false
     hasOpenedScrobbleSessionForCurrentItem = false
+    scrobbleStartProgressPercent = null
     scrobblePlaybackId = System.nanoTime()
     logScrobbleDiagnostic("item_refreshed")
 }
@@ -908,6 +909,7 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
     // and a start already sent above the bar does not stand in its way.
     hasSentStartAboveCompletionBarForCurrentItem = false
     hasOpenedScrobbleSessionForCurrentItem = true
+    scrobbleStartProgressPercent = currentProgress.toDouble()
     // A new stretch of playback starts here. A completion stop sent before it does not stand for
     // this one, so the stop that ends it may be reported again.
     // A completion stop the previous stretch reported does not belong to the session this start
@@ -977,6 +979,7 @@ internal fun PlayerRuntimeController.emitScrobbleStartAboveCompletionBar(progres
         return
     }
     hasSentStartAboveCompletionBarForCurrentItem = true
+    scrobbleStartProgressPercent = progressPercent.toDouble()
     // The resume opens a new stretch of the same playback, so its stop may report the finish even
     // when an idle stop below the bar already latched one.
     hasSentCompletionScrobbleForCurrentItem = false
@@ -1055,6 +1058,7 @@ internal fun PlayerRuntimeController.emitScrobbleStop(progressPercent: Float? = 
                 contentEndPercent = currentContentEndPercent(),
                 sessionless = sessionless,
                 hasPlaybackSession = hasOpenedScrobbleSessionForCurrentItem,
+                startProgressPercent = scrobbleStartProgressPercent,
                 playbackId = scrobblePlaybackId
             )
         )
@@ -1108,6 +1112,7 @@ internal fun PlayerRuntimeController.emitScrobblePause(progressPercent: Float? =
                 contentEndPercent = currentContentEndPercent(),
                 sessionless = sessionless,
                 hasPlaybackSession = hasOpenedScrobbleSessionForCurrentItem,
+                startProgressPercent = scrobbleStartProgressPercent,
                 playbackId = scrobblePlaybackId
             )
         )

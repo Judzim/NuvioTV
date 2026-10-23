@@ -706,6 +706,9 @@ class PlayerRuntimeController(
     /** A start was sent below the bar for this item, so the account owns its playback. */
     internal var hasOpenedScrobbleSessionForCurrentItem: Boolean = false
 
+    /** Where the last start of this playback began, for a stop that ends above the bar. */
+    internal var scrobbleStartProgressPercent: Double? = null
+
     /** Identifies this run of the player, so trackers collapse a completion they already wrote. */
     internal var scrobblePlaybackId: Long = 0L
 
