@@ -51,32 +51,81 @@ internal data class AudioDelayParts(
     /** `behaviorHints.audioDelayMs` of the current stream. */
     val streamMs: Int = 0,
     /** User adjustment made while a stream delay is active; never persisted, dropped on stream change. */
-    val sessionAdjustMs: Int = 0
+    val sessionAdjustMs: Int = 0,
+    /**
+     * `behaviorHints.audioDelayLanguage` of the current stream: when set, the stream delay only
+     * applies to the tracks in this language (the ones coming from the addon's audio source).
+     */
+    val streamLanguage: String? = null,
+    /** False while the selected audio track is not in [streamLanguage] (e.g. the video's original audio). */
+    val streamAudioActive: Boolean = true
 ) {
+    private val hasActiveStreamDelay: Boolean
+        get() = streamMs != 0 && streamAudioActive
+
     val totalMs: Int
-        get() = (deviceMs.toLong() + streamMs + sessionAdjustMs)
+        get() {
+            val streamPartMs = if (streamAudioActive) streamMs.toLong() + sessionAdjustMs else 0L
+            return (deviceMs.toLong() + streamPartMs)
+                .coerceIn(AUDIO_DELAY_MIN_MS.toLong(), AUDIO_DELAY_MAX_MS.toLong())
+                .toInt()
+        }
+
+    /** Content offset of the stream's audio source (hint + user's tweak), without the device delay. */
+    val streamSourceOffsetMs: Int
+        get() = (streamMs.toLong() + sessionAdjustMs)
             .coerceIn(AUDIO_DELAY_MIN_MS.toLong(), AUDIO_DELAY_MAX_MS.toLong())
             .toInt()
 
     /** Value to save for the current route, or null while a stream delay is active. */
     val persistableDeviceMs: Int?
-        get() = deviceMs.takeIf { streamMs == 0 }
+        get() = deviceMs.takeIf { !hasActiveStreamDelay }
 
     /** The user picked [totalMs] in the Audio panel. */
     fun withManualTotal(totalMs: Int): AudioDelayParts {
         val clampedTotalMs = totalMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS)
-        return if (streamMs == 0) {
-            copy(deviceMs = clampedTotalMs, sessionAdjustMs = 0)
-        } else {
-            copy(sessionAdjustMs = clampedTotalMs - deviceMs - streamMs)
+        return when {
+            streamMs == 0 -> copy(deviceMs = clampedTotalMs, sessionAdjustMs = 0)
+            // Original audio selected: the stream delay is not in play, so this is a device tweak.
+            !streamAudioActive -> copy(deviceMs = clampedTotalMs)
+            else -> copy(sessionAdjustMs = clampedTotalMs - deviceMs - streamMs)
         }
     }
 
-    fun withStream(streamMs: Int): AudioDelayParts =
-        copy(streamMs = streamMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS), sessionAdjustMs = 0)
+    fun withStream(streamMs: Int, streamLanguage: String? = null): AudioDelayParts =
+        copy(
+            streamMs = streamMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS),
+            sessionAdjustMs = 0,
+            streamLanguage = streamLanguage?.takeIf { it.isNotBlank() },
+            streamAudioActive = true
+        )
+
+    fun withStreamAudioActive(active: Boolean): AudioDelayParts =
+        copy(streamAudioActive = active || streamLanguage == null)
 
     fun withDevice(deviceMs: Int): AudioDelayParts =
         copy(deviceMs = deviceMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS))
+}
+
+/** Decides which selected tracks belong to the stream's audio source (`behaviorHints.audioDelayLanguage`). */
+internal object StreamDelayScope {
+    /** Without a language every audio track gets the stream delay; unknown selection keeps it until tracks load. */
+    fun appliesToAudio(streamLanguage: String?, selectedAudioLanguage: String?, hasSelectedAudio: Boolean): Boolean =
+        streamLanguage == null ||
+            !hasSelectedAudio ||
+            PlayerSubtitleUtils.matchesLanguageCode(selectedAudioLanguage, streamLanguage)
+
+    /** Only embedded tracks in the stream language are shifted; addon subtitles follow the video. */
+    fun appliesToSubtitle(
+        streamLanguage: String?,
+        selectedInternalSubtitleLanguage: String?,
+        hasSelectedInternalSubtitle: Boolean,
+        addonSubtitleActive: Boolean
+    ): Boolean =
+        streamLanguage != null &&
+            hasSelectedInternalSubtitle &&
+            !addonSubtitleActive &&
+            PlayerSubtitleUtils.matchesLanguageCode(selectedInternalSubtitleLanguage, streamLanguage)
 }
 
 /** Audio panel change: [delayMs] is the new total delay shown to the user. */
@@ -94,13 +143,56 @@ internal fun PlayerRuntimeController.applyEffectiveAudioDelay() {
     if (isUsingMpvEngine()) {
         mpvView?.setAudioDelayMs(totalMs)
     }
+    applyStreamSubtitleOffset()
 }
 
 /** A new stream was selected: swap in its delay hint and drop the tweak made on the previous one. */
-internal fun PlayerRuntimeController.applyStreamAudioDelay(streamDelayMs: Int?) {
-    audioDelayParts = audioDelayParts.withStream(streamDelayMs ?: 0)
-    applyEffectiveAudioDelay()
+internal fun PlayerRuntimeController.applyStreamAudioDelay(streamDelayMs: Int?, streamLanguage: String? = null) {
+    audioDelayParts = audioDelayParts.withStream(streamDelayMs ?: 0, streamLanguage)
+    syncStreamDelayWithSelectedTracks(forceApply = true)
 }
+
+/** Re-evaluates which selected tracks come from the stream's audio source and applies the delays. */
+internal fun PlayerRuntimeController.syncStreamDelayWithSelectedTracks(forceApply: Boolean = false) {
+    val state = _uiState.value
+    val selectedAudio = state.audioTracks.getOrNull(state.selectedAudioTrackIndex)
+    val audioActive = StreamDelayScope.appliesToAudio(
+        streamLanguage = audioDelayParts.streamLanguage,
+        selectedAudioLanguage = selectedAudio?.language,
+        hasSelectedAudio = selectedAudio != null
+    )
+    val updatedParts = audioDelayParts.withStreamAudioActive(audioActive)
+    if (forceApply || updatedParts != audioDelayParts) {
+        audioDelayParts = updatedParts
+        applyEffectiveAudioDelay()
+    } else {
+        applyStreamSubtitleOffset()
+    }
+}
+
+/**
+ * Embedded subtitles from the stream's audio source share its timeline, so they get the same
+ * content offset. Kept apart from the user's subtitle delay, which is persisted per video.
+ */
+internal fun PlayerRuntimeController.applyStreamSubtitleOffset() {
+    val state = _uiState.value
+    val selectedSubtitle = state.subtitleTracks.getOrNull(state.selectedSubtitleTrackIndex)
+    val applies = StreamDelayScope.appliesToSubtitle(
+        streamLanguage = audioDelayParts.streamLanguage,
+        selectedInternalSubtitleLanguage = selectedSubtitle?.language,
+        hasSelectedInternalSubtitle = selectedSubtitle != null,
+        addonSubtitleActive = state.selectedAddonSubtitle != null
+    )
+    val offsetUs = if (applies) audioDelayParts.streamSourceOffsetMs.toLong() * 1000L else 0L
+    if (streamSubtitleDelayUs.getAndSet(offsetUs) == offsetUs) return
+    if (isUsingMpvEngine()) {
+        mpvView?.setSubtitleDelayMs(mpvSubtitleDelayMs(state.subtitleDelayMs))
+    }
+}
+
+/** mpv has a single `sub-delay`: the user's subtitle delay plus the stream source offset. */
+internal fun PlayerRuntimeController.mpvSubtitleDelayMs(userDelayMs: Int): Int =
+    userDelayMs + (streamSubtitleDelayUs.get() / 1000L).toInt()
 
 internal fun PlayerRuntimeController.skipActiveInterval(): Boolean {
     return skipInterval(_uiState.value.activeSkipInterval ?: return false)
@@ -1282,7 +1374,7 @@ internal fun PlayerRuntimeController.setSubtitleDelayMs(targetMs: Int, showOverl
 
     subtitleDelayUs.set(newDelayMs.toLong() * 1000L)
     if (isUsingMpvEngine()) {
-        mpvView?.setSubtitleDelayMs(newDelayMs)
+        mpvView?.setSubtitleDelayMs(mpvSubtitleDelayMs(newDelayMs))
     }
     if (showOverlay) {
         _uiState.update {

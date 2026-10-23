@@ -144,7 +144,6 @@ import com.nuvio.tv.ui.screens.party.PartyStatusPill
 import com.nuvio.tv.core.player.PlayerWindowBackdrop
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import com.nuvio.tv.data.local.InternalPlayerEngine
-import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.domain.model.StreamBadge
@@ -163,7 +162,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.media3.exoplayer.ExoPlayer
-import io.github.peerless2012.ass.media.widget.AssSubtitleView
+import com.nuvio.tv.libass.media.widget.AssSubtitleSurfaceView
 import kotlin.math.abs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
@@ -1205,7 +1204,6 @@ fun PlayerScreen(
                             tunnelingEnabled = uiState.tunnelingEnabled,
                             tunneledSurfaceFill = uiState.tunneledSurfaceFill,
                             useLibass = uiState.useLibass,
-                            libassRenderType = uiState.libassRenderType,
                             subtitleStyle = uiState.effectiveSubtitleStyle,
                             subtitleLiftPx = subtitleLiftPx,
                             onBindSubtitleView = viewModel::bindExoSubtitleView,
@@ -2157,7 +2155,6 @@ private fun ExoPlayerSurface(
     tunnelingEnabled: Boolean,
     tunneledSurfaceFill: Boolean,
     useLibass: Boolean,
-    libassRenderType: LibassRenderType,
     subtitleStyle: SubtitleStyleSettings,
     subtitleLiftPx: Float,
     onBindSubtitleView: (androidx.media3.ui.SubtitleView?) -> Unit = {},
@@ -2192,8 +2189,7 @@ private fun ExoPlayerSurface(
         update = {
             it.syncLibassOverlay(
                 player = player,
-                enabled = useLibass,
-                renderType = libassRenderType
+                enabled = useLibass
             )
             latestBindSubtitleView(it.subtitleView)
         }
@@ -2300,11 +2296,10 @@ private fun ExoPlayerSurface(
         )
     }
 
-    LaunchedEffect(playerView, player, useLibass, libassRenderType) {
+    LaunchedEffect(playerView, player, useLibass) {
         playerView.syncLibassOverlay(
             player = player,
-            enabled = useLibass,
-            renderType = libassRenderType
+            enabled = useLibass
         )
     }
 
@@ -2516,16 +2511,11 @@ private fun measureSubtitleBlockPx(
 
 private fun PlayerView.syncLibassOverlay(
     player: ExoPlayer,
-    enabled: Boolean,
-    renderType: LibassRenderType
+    enabled: Boolean
 ) {
-    val containerId = if (renderType == LibassRenderType.OVERLAY_OPEN_GL) {
-        R.id.libass_overlay_container_gl
-    } else {
-        R.id.libass_overlay_container
-    }
+    val containerId = R.id.libass_overlay_container_gl
     val overlayContainer = findViewById<android.widget.FrameLayout>(containerId) ?: return
-    val needsOverlay = enabled && renderType.usesOverlaySubtitleView()
+    val needsOverlay = enabled
     val boundPlayer = getTag(R.id.libass_overlay_bound_player) as? ExoPlayer
     val hasOverlayChild = overlayContainer.hasAssOverlayChild()
 
@@ -2534,6 +2524,7 @@ private fun PlayerView.syncLibassOverlay(
             overlayContainer.removeAssOverlayChildren()
         }
         if (boundPlayer != null) {
+            boundPlayer.getAssHandlerCompat()?.videoFrameCallback = null
             setTag(R.id.libass_overlay_bound_player, null)
         }
         return
@@ -2545,9 +2536,15 @@ private fun PlayerView.syncLibassOverlay(
     }
 
     overlayContainer.removeAssOverlayChildren()
-    val assSubtitleView = AssSubtitleView(overlayContainer.context, assHandler)
+    // SurfaceView with atlas GL pipeline for best performance.
+    // AssPositionRenderer provides position updates when VideoFrameMetadataListener
+    // is not active (tunneled playback).
+    val surfaceView = AssSubtitleSurfaceView(overlayContainer.context, assHandler)
+    assHandler.videoFrameCallback = { presentationTimeUs, releaseTimeNs ->
+        surfaceView.requestRender(presentationTimeUs, releaseTimeNs)
+    }
     overlayContainer.addView(
-        assSubtitleView,
+        surfaceView,
         android.widget.FrameLayout.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
             android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -2556,13 +2553,10 @@ private fun PlayerView.syncLibassOverlay(
     setTag(R.id.libass_overlay_bound_player, player)
 }
 
-private fun LibassRenderType.usesOverlaySubtitleView(): Boolean {
-    return this == LibassRenderType.OVERLAY_CANVAS || this == LibassRenderType.OVERLAY_OPEN_GL
-}
-
 private fun android.widget.FrameLayout.hasAssOverlayChild(): Boolean {
     for (index in 0 until childCount) {
-        if (getChildAt(index) is AssSubtitleView) {
+        val child = getChildAt(index)
+        if (child is AssSubtitleSurfaceView) {
             return true
         }
     }
@@ -2571,7 +2565,8 @@ private fun android.widget.FrameLayout.hasAssOverlayChild(): Boolean {
 
 private fun android.widget.FrameLayout.removeAssOverlayChildren() {
     for (index in childCount - 1 downTo 0) {
-        if (getChildAt(index) is AssSubtitleView) {
+        val child = getChildAt(index)
+        if (child is AssSubtitleSurfaceView) {
             removeViewAt(index)
         }
     }
@@ -2583,11 +2578,13 @@ private fun android.widget.FrameLayout.removeAssOverlayChildren() {
  */
 private fun PlayerView.setAssOverlayVisibility(visibility: Int) {
     if (visibility == android.view.View.GONE) {
-        for (containerId in intArrayOf(R.id.libass_overlay_container, R.id.libass_overlay_container_gl)) {
+        for (containerId in intArrayOf(R.id.libass_overlay_container_gl)) {
             val container = findViewById<android.widget.FrameLayout>(containerId) ?: continue
             container.removeAssOverlayChildren()
         }
         setTag(R.id.libass_overlay_bound_player, null)
+        val player = player as? ExoPlayer ?: return
+        player.getAssHandlerCompat()?.videoFrameCallback = null
     }
 }
 

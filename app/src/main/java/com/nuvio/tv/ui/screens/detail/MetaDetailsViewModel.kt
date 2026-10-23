@@ -175,6 +175,7 @@ class MetaDetailsViewModel @Inject constructor(
         observeTraktCommentsAvailability()
         observeLibraryState()
         observeWatchProgress()
+        observeMovieResumeProgress()
         observeWatchedEpisodes()
         observeMovieWatched()
         observeRelatedWatchedStatus()
@@ -544,6 +545,17 @@ class MetaDetailsViewModel @Inject constructor(
                 reevaluateSeriesWatchedBadge()
                 calculateNextToWatch()
             }
+        }
+    }
+
+    private fun observeMovieResumeProgress() {
+        if (!itemType.equals("movie", ignoreCase = true)) return
+
+        viewModelScope.launch {
+            _effectiveContentId
+                .flatMapLatest { contentId -> watchProgressRepository.getProgress(contentId) }
+                .distinctUntilChanged()
+                .collectLatest { calculateNextToWatch() }
         }
     }
 
@@ -1903,11 +1915,13 @@ class MetaDetailsViewModel @Inject constructor(
         val meta = _uiState.value.meta ?: return
         val progressMap = _uiState.value.episodeProgressMap
         val watchedEpisodes = _uiState.value.watchedEpisodes
+        val isSeries = meta.apiType.equals("series", ignoreCase = true) ||
+            meta.apiType.equals("tv", ignoreCase = true)
 
         // Don't override an existing nextToWatch with a computation from empty progress data.
         // The inline computation in applyMetaWithEnrichment reads directly from the repo
         // and may have better data than the UI state observer at this point.
-        if (progressMap.isEmpty() && watchedEpisodes.isEmpty() && _uiState.value.nextToWatch != null) {
+        if (isSeries && progressMap.isEmpty() && watchedEpisodes.isEmpty() && _uiState.value.nextToWatch != null) {
             return
         }
 
