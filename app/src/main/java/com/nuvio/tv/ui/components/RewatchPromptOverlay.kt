@@ -3,9 +3,12 @@
 package com.nuvio.tv.ui.components
 
 import android.view.KeyEvent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,8 +31,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -37,8 +44,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Border
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -47,6 +55,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.data.simkl.RewatchQuestion
 import com.nuvio.tv.data.simkl.SimklRewatchConsentRepository
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
+import com.nuvio.tv.ui.theme.NuvioColorScheme
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
 
@@ -82,6 +91,33 @@ internal fun rewatchPromptKeyOutcome(keyCode: Int, action: Int): RewatchPromptKe
         RewatchPromptKeyOutcome.IGNORE
     } else {
         RewatchPromptKeyOutcome.KEEP
+    }
+}
+
+/** The colours one answer uses depending on whether it owns focus. */
+internal data class RewatchAnswerColors(
+    val container: Color,
+    val content: Color
+)
+
+/**
+ * Both answers stay neutral until one owns focus.
+ *
+ * The accent is the focus treatment, not the meaning of an answer, so it belongs only to the
+ * focused card. This is what keeps the question from looking like it is about to grant a rewatch
+ * while focus actually sits on the answer that writes nothing.
+ */
+internal fun rewatchAnswerColors(isFocused: Boolean, colors: NuvioColorScheme): RewatchAnswerColors {
+    return if (isFocused) {
+        RewatchAnswerColors(
+            container = colors.Secondary,
+            content = colors.OnSecondary
+        )
+    } else {
+        RewatchAnswerColors(
+            container = colors.BackgroundCard,
+            content = colors.TextPrimary
+        )
     }
 }
 
@@ -194,10 +230,24 @@ private fun RewatchQuestionBand(
 ) {
     val containerColor = NuvioTheme.colors.BackgroundElevated
     val dividerColor = NuvioTheme.colors.Border
+    var entered by remember { mutableStateOf(false) }
+    val enterProgress by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing),
+        label = "rewatchBandEnter"
+    )
+
+    LaunchedEffect(Unit) {
+        entered = true
+    }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                alpha = enterProgress
+                translationY = (1f - enterProgress) * -12.dp.toPx()
+            }
             .drawBehind {
                 drawRect(containerColor)
                 drawRect(
@@ -233,56 +283,97 @@ private fun RewatchQuestionBand(
             )
 
             /*
-             * Both buttons keep left and right between themselves. The D pad would otherwise be able
-             * to walk out of the band, because the band is a strip and not a box the focus is
-             * trapped in, and the question would then be left unanswered behind whatever screen the
-             * user moved to.
+             * Both answers keep left and right between themselves. The D pad would otherwise be
+             * able to walk out of the band, because the band is a strip and not a box the focus
+             * is trapped in, and the question would then be left unanswered behind whatever
+             * screen the user moved to.
              */
-            Button(
+            RewatchAnswerCard(
+                text = stringResource(R.string.rewatch_prompt_confirm),
                 onClick = onGrant,
-                modifier = Modifier
-                    .focusRequester(grantFocusRequester)
-                    .focusProperties {
-                        left = grantFocusRequester
-                        right = declineFocusRequester
-                        up = grantFocusRequester
-                        down = grantFocusRequester
-                    },
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.Secondary,
-                    focusedContainerColor = NuvioTheme.colors.SecondaryVariant,
-                    contentColor = NuvioTheme.colors.OnSecondary,
-                    focusedContentColor = NuvioTheme.colors.OnSecondaryVariant
-                ),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50)),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.rewatch_prompt_confirm),
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+                focusRequester = grantFocusRequester,
+                left = grantFocusRequester,
+                right = declineFocusRequester,
+                up = grantFocusRequester,
+                down = grantFocusRequester
+            )
 
-            Button(
+            RewatchAnswerCard(
+                text = stringResource(R.string.rewatch_prompt_dismiss),
                 onClick = onDecline,
-                modifier = Modifier
-                    .focusRequester(declineFocusRequester)
-                    .focusProperties {
-                        left = grantFocusRequester
-                        right = declineFocusRequester
-                        up = declineFocusRequester
-                        down = declineFocusRequester
-                    },
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    focusedContainerColor = NuvioTheme.colors.FocusBackground,
-                    contentColor = NuvioTheme.colors.TextPrimary,
-                    focusedContentColor = NuvioTheme.colors.Primary
-                ),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ) {
-                Text(stringResource(R.string.rewatch_prompt_dismiss))
-            }
+                focusRequester = declineFocusRequester,
+                left = grantFocusRequester,
+                right = declineFocusRequester,
+                up = declineFocusRequester,
+                down = declineFocusRequester
+            )
         }
+    }
+}
+
+/**
+ * One answer, drawn as the same focusable card the consent dialog uses.
+ *
+ * The card is neutral at rest and takes the accent only while focused, with the same focus ring,
+ * scale and colour animation as `P2pConsentDialog`, so both answers read as one control rather than
+ * as a primary and a secondary button.
+ */
+@Composable
+private fun RewatchAnswerCard(
+    text: String,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester,
+    left: FocusRequester,
+    right: FocusRequester,
+    up: FocusRequester,
+    down: FocusRequester
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val targetColors = rewatchAnswerColors(isFocused, NuvioTheme.colors)
+    val containerColor by animateColorAsState(
+        targetValue = targetColors.container,
+        animationSpec = tween(durationMillis = 150),
+        label = "rewatchAnswerContainer"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = targetColors.content,
+        animationSpec = tween(durationMillis = 150),
+        label = "rewatchAnswerContent"
+    )
+    val shape = RoundedCornerShape(50)
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusProperties {
+                this.left = left
+                this.right = right
+                this.up = up
+                this.down = down
+            },
+        colors = CardDefaults.colors(
+            containerColor = containerColor,
+            focusedContainerColor = containerColor,
+            contentColor = contentColor,
+            focusedContentColor = contentColor
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs),
+                shape = shape
+            )
+        ),
+        shape = CardDefaults.shape(shape = shape),
+        scale = CardDefaults.scale(focusedScale = 1.05f)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            color = contentColor,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+        )
     }
 }

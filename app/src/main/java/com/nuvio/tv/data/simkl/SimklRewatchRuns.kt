@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.simkl
 
 import com.nuvio.tv.core.tracking.RewatchRunPosition
+import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 
 /**
@@ -212,10 +213,15 @@ internal fun List<SimklLibraryEntry>.activeRewatchSessionId(media: TrackingMedia
  *
  * A mark only needs the show's running session; a removal must name the session the episode was
  * rewatched in, or it would clear a different run.
+ *
+ * Anime references may carry no season, because Simkl lists anime episodes flat. A known season is
+ * still matched exactly, so an episode number that repeats in another season is never mistaken for
+ * the target. Without one, the episode number alone decides, and the most recently watched running
+ * session wins.
  */
 internal fun List<SimklLibraryEntry>.activeRewatchSessionIdForEpisode(
     media: TrackingMediaReference,
-    seasonNumber: Int,
+    seasonNumber: Int?,
     episodeNumber: Int
 ): Long? {
     val target = media.toSimklMedia()
@@ -224,11 +230,33 @@ internal fun List<SimklLibraryEntry>.activeRewatchSessionIdForEpisode(
             entry.media?.matchesTarget(target) == true &&
             entry.isRunningRewatchSession() &&
             entry.rewatchedEpisodes().any { episode ->
-                episode.seasonNumber == seasonNumber && episode.episodeNumber == episodeNumber
+                episode.episodeNumber == episodeNumber &&
+                    (seasonNumber == null || episode.seasonNumber == seasonNumber)
             }
     }
         .maxByOrNull { entry -> entry.lastWatchedAt?.let(::parseSimklUtcEpochMs) ?: Long.MIN_VALUE }
         ?.rewatchId
+}
+
+/**
+ * The session id a removal may name, using the reference the user marked.
+ *
+ * A show must name its season: the same episode number exists in every season. An anime may be
+ * listed flat, so an exact season is tried first and then the flat form. The fallback is anime only;
+ * a show without a season must not match an arbitrary season.
+ */
+internal fun List<SimklLibraryEntry>.activeRewatchSessionIdForRemoval(
+    media: TrackingMediaReference,
+    seasonNumber: Int?,
+    episodeNumber: Int
+): Long? {
+    if (seasonNumber == null && media.kind != TrackingMediaKind.ANIME) return null
+    return activeRewatchSessionIdForEpisode(media, seasonNumber, episodeNumber)
+        ?: if (media.kind == TrackingMediaKind.ANIME && seasonNumber != null) {
+            activeRewatchSessionIdForEpisode(media, null, episodeNumber)
+        } else {
+            null
+        }
 }
 
 /**

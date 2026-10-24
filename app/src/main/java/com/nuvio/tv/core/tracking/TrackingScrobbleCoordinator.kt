@@ -51,6 +51,23 @@ class TrackingScrobbleCoordinator @Inject constructor(
         event = event
     )
 
+    /**
+     * Gives the connected trackers a chance to prepare the user before the player starts. A tracker
+     * that fails here must not stop the playback, so each one is isolated.
+     */
+    suspend fun preparePlayback(media: TrackingMediaReference, progressPercent: Double = 0.0) {
+        for (scrobbler in providerRegistry.connectedScrobblers()) {
+            runCatching { scrobbler.preparePlayback(media, progressPercent) }
+                .onFailure { error ->
+                    Log.w(
+                        "TrackingScrobble",
+                        "${scrobbler.providerId.storageId} preparePlayback failed",
+                        error
+                    )
+                }
+        }
+    }
+
     private suspend fun dispatch(
         scrobblers: Collection<TrackingScrobbler>,
         action: TrackingScrobbleAction,

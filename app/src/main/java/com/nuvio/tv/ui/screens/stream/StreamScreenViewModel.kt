@@ -1448,6 +1448,15 @@ class StreamScreenViewModel @Inject constructor(
         updateUiStateIfChanged { it.copy(playbackErrorMessage = null) }
     }
 
+    /**
+     * Lets a tracker ask its pre-play question while the source is still on screen. This is a read
+     * only preparation; the player owns the actual start and the answer is kept for its stop.
+     */
+    suspend fun preparePlayback(playbackInfo: StreamPlaybackInfo, progressPercent: Double) {
+        val item = buildScrobbleItem(playbackInfo) ?: return
+        trackingScrobbleCoordinator.preparePlayback(item, progressPercent)
+    }
+
     fun onInternalPlayerLaunching() {
         streamRepository.setLocalPluginSearchPaused(true)
         updateUiStateIfChanged {

@@ -109,17 +109,20 @@ class SimklTrackingHistoryWriter @Inject constructor(
         if (profileId != profileManager.activeProfileId.value) return null
         syncRepository.ensureLoaded()
         val snapshot = syncRepository.state.value.snapshot
+        // The lookup needs the identity and the coordinates the user marked, while the request needs
+        // the anime-native reference: resolving first would drop the season the stored session was
+        // found with.
         val candidates = items.map { ref ->
-            snapshot.enrichMediaReference(ref).resolveAnimeEpisodeForSimkl()
+            val enriched = snapshot.enrichMediaReference(ref)
+            enriched to enriched.resolveAnimeEpisodeForSimkl()
         }
-        val media = candidates.singleOrNull() ?: return null
+        val (media, resolved) = candidates.singleOrNull() ?: return null
         val episode = media.episode ?: return null
-        val season = episode.season ?: return null
-        val rewatchId = snapshot.rewatchSessions.activeRewatchSessionIdForEpisode(
+        val rewatchId = snapshot.rewatchSessions.activeRewatchSessionIdForRemoval(
             media = media,
-            seasonNumber = season,
+            seasonNumber = episode.season,
             episodeNumber = episode.number
         ) ?: return null
-        return service.removeRewatchFromHistory(candidates, rewatchId)
+        return service.removeRewatchFromHistory(listOf(resolved), rewatchId)
     }
 }
