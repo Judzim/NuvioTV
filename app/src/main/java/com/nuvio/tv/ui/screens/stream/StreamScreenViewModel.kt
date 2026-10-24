@@ -98,6 +98,7 @@ class StreamScreenViewModel @Inject constructor(
     private val debridStreamPresentation: DebridStreamPresentation,
     private val youTubeStreamResolver: YouTubeStreamResolver,
     private val externalPlaybackTracker: com.nuvio.tv.core.player.ExternalPlaybackTracker,
+    val rewatchConsentRepository: com.nuvio.tv.data.simkl.SimklRewatchConsentRepository,
     private val subtitleRepository: com.nuvio.tv.domain.repository.SubtitleRepository,
     private val subtitleFileCache: com.nuvio.tv.core.player.SubtitleFileCache,
     private val torrentService: TorrentService,
@@ -1292,7 +1293,16 @@ class StreamScreenViewModel @Inject constructor(
         }
     }
 
-    suspend fun resolveStreamForPlayback(stream: Stream, saveLastLink: Boolean = true): StreamPlaybackInfo? {
+    suspend fun resolveStreamForPlayback(
+        stream: Stream,
+        saveLastLink: Boolean = true,
+        progressPercent: Double = 0.0
+    ): StreamPlaybackInfo? {
+        // The question is part of choosing a source, not of resolving it. Ask for every source
+        // that will play in Nuvio, before the resolver can put a loading overlay on screen.
+        if (!stream.isExternal()) {
+            preparePlaybackForStream(stream, progressPercent)
+        }
         stream.serverTarget?.let { target -> return prepareServerStream(stream, target) }
         if (stream.youTubeIdToResolve() != null) {
             return resolveYouTubeStreamForPlayback(stream)
@@ -1446,6 +1456,25 @@ class StreamScreenViewModel @Inject constructor(
 
     fun onPlaybackErrorShown() {
         updateUiStateIfChanged { it.copy(playbackErrorMessage = null) }
+    }
+
+    /**
+     * Lets a tracker ask its pre-play question while the source is still on screen. This is a read
+     * only preparation; the player owns the actual start and the answer is kept for its stop.
+     */
+    suspend fun preparePlayback(playbackInfo: StreamPlaybackInfo, progressPercent: Double) {
+        val item = buildScrobbleItem(playbackInfo) ?: return
+        trackingScrobbleCoordinator.preparePlayback(item, progressPercent)
+    }
+
+    /**
+     * Asks the pre-play question from the selected source, before a debrid resolve can put a
+     * resolving overlay on screen. The source already carries every tracking field the question
+     * needs; the resolved URL is irrelevant to whether a rewatch should be offered.
+     */
+    suspend fun preparePlaybackForStream(stream: Stream, progressPercent: Double) {
+        val item = buildScrobbleItem(getStreamForPlayback(stream, saveLastLink = false)) ?: return
+        trackingScrobbleCoordinator.preparePlayback(item, progressPercent)
     }
 
     fun onInternalPlayerLaunching() {
@@ -1672,8 +1701,15 @@ class StreamScreenViewModel @Inject constructor(
         resumePositionMs: Long = 0L,
         startFromBeginning: Boolean = false,
         autoLaunch: Boolean = false,
-        context: android.content.Context
+        context: android.content.Context,
+        progressPercent: Double = 0.0
     ) {
+        /*
+         * An external player reports its start only after it has already closed, so the normal
+         * start gate cannot ask. Ask here, while the source is still visible, and the grant stays
+         * in the consent repository for the START/STOP pair the return produces.
+         */
+        preparePlayback(playbackInfo, progressPercent)
         streamRepository.setLocalPluginSearchPaused(true)
         externalOverlayHideJob?.cancel()
         // Preserve the current message; blanking it made the card's Crossfade flash

@@ -189,4 +189,11 @@ interface TrackingScrobbler {
         get() = false
 
     suspend fun scrobble(action: TrackingScrobbleAction, event: TrackingScrobbleEvent)
+
+    /**
+     * A chance to prepare the user before a playback starts. This writes nothing; it exists so a
+     * tracker can ask its own question before the player opens the item. The default keeps every
+     * other tracker out of the path.
+     */
+    suspend fun preparePlayback(media: TrackingMediaReference, progressPercent: Double = 0.0) = Unit
 }
