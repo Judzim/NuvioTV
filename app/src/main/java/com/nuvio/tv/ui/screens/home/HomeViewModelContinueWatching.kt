@@ -9,6 +9,7 @@ import com.nuvio.tv.core.player.PlayerSessionTracker
 import com.nuvio.tv.core.util.isEpisodeReleaseAired
 import com.nuvio.tv.core.util.parseEpisodeReleaseInstant
 import com.nuvio.tv.core.util.selectEpisodeReleaseValue
+import com.nuvio.tv.data.simkl.SimklSyncSnapshot
 import com.nuvio.tv.data.simkl.canonicalContentId
 import com.nuvio.tv.data.simkl.isRunningRewatchSession
 import com.nuvio.tv.data.simkl.mediaReference
@@ -592,7 +593,16 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     val (mainItems, upcomingOnly) = splitUpcomingItems(initialItems, continueWatchingSortMode)
 
                     _uiState.update { state ->
-                        if (mainItems.isEmpty() && upcomingOnly.isEmpty() && state.continueWatchingItems.isNotEmpty()) {
+                        val holdForRewatchClose = shouldHoldContinueWatchingDuringRewatchClose(
+                            currentMain = state.continueWatchingItems,
+                            currentUpcoming = state.upcomingItems,
+                            incomingMain = mainItems,
+                            incomingUpcoming = upcomingOnly,
+                            rewatchClosePending = cwPendingRewatchCloseContentIds.isNotEmpty()
+                        )
+                        if (holdForRewatchClose) {
+                            state
+                        } else if (mainItems.isEmpty() && upcomingOnly.isEmpty() && state.continueWatchingItems.isNotEmpty()) {
                             state
                         } else if (state.continueWatchingItems == mainItems && state.upcomingItems == upcomingOnly) {
                             state
@@ -681,7 +691,16 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 )
                                 val (partialMain, partialUpcoming) = splitUpcomingItems(partialItems, continueWatchingSortMode)
                                 _uiState.update { state ->
-                                    if (state.continueWatchingItems == partialMain && state.upcomingItems == partialUpcoming) {
+                                    val holdForRewatchClose = shouldHoldContinueWatchingDuringRewatchClose(
+                                        currentMain = state.continueWatchingItems,
+                                        currentUpcoming = state.upcomingItems,
+                                        incomingMain = partialMain,
+                                        incomingUpcoming = partialUpcoming,
+                                        rewatchClosePending = cwPendingRewatchCloseContentIds.isNotEmpty()
+                                    )
+                                    if (holdForRewatchClose) {
+                                        state
+                                    } else if (state.continueWatchingItems == partialMain && state.upcomingItems == partialUpcoming) {
                                         state
                                     } else if (!snapshot.hasLoadedRemoteProgress && state.continueWatchingItems.isNotEmpty()) {
                                         // Don't overwrite with partial data until remote progress
@@ -1118,13 +1137,20 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     // Don't overwrite cached CW with empty data while sources are still loading.
                     // Once remote progress is confirmed loaded (Nuvio Sync completed or Trakt
                     // responded), trust the empty result — items may have been deleted remotely.
+                    val holdForRewatchClose = shouldHoldContinueWatchingDuringRewatchClose(
+                        currentMain = state.continueWatchingItems,
+                        currentUpcoming = state.upcomingItems,
+                        incomingMain = normalMain,
+                        incomingUpcoming = normalUpcoming,
+                        rewatchClosePending = cwPendingRewatchCloseContentIds.isNotEmpty()
+                    )
                     val shouldProtectCache = normalMain.isEmpty() && normalUpcoming.isEmpty() &&
                         state.continueWatchingItems.isNotEmpty() &&
                         !snapshot.hasLoadedRemoteProgress
                     val shouldPreventShrink = !snapshot.hasLoadedRemoteProgress &&
                         state.continueWatchingItems.isNotEmpty() &&
                         normalMain.size < state.continueWatchingItems.size
-                    if (shouldProtectCache || shouldPreventShrink) {
+                    if (holdForRewatchClose || shouldProtectCache || shouldPreventShrink) {
                         state
                     } else if (state.continueWatchingItems == normalMain && state.upcomingItems == normalUpcoming) {
                         state
@@ -3258,18 +3284,16 @@ internal fun nextUpDismissalKeysToClear(
 }
 
 /**
- * Ends the run a Continue Watching card stands for, when the card is the run.
+ * The run a card stands for and the session that holds it, when the card is a running rewatch.
  *
- * The account holds the run, so a card of a running rewatch cannot be taken out of the row locally:
- * Continue Watching reads the sessions, and the next read, here or on any other device, would put it
- * back. Closing the session takes the card out everywhere it is read and keeps the watch history
- * Simkl already has. A card whose series runs no session is left alone.
+ * The same matcher the row used to place the card, so the two cannot disagree about which run
+ * the card stands for.
  */
-internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String) {
-    val snapshot = simklSyncRepository.state.value.snapshot
-    // The same matcher the row used to place the card, so the two cannot disagree about which run
-    // the card stands for.
-    val run = snapshot.rewatchRuns.firstOrNull { run -> run.matches(contentId) } ?: return
+private fun runningRewatchFor(
+    snapshot: SimklSyncSnapshot,
+    contentId: String
+): Pair<RewatchRunPosition, Long>? {
+    val run = snapshot.rewatchRuns.firstOrNull { run -> run.matches(contentId) } ?: return null
     val sessionId = snapshot.rewatchSessions
         .firstOrNull { entry ->
             entry.isRewatch &&
@@ -3277,16 +3301,54 @@ internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String) {
                 entry.media?.canonicalContentId() == run.contentId
         }
         ?.rewatchId
-        ?: return
+        ?: return null
+    return run to sessionId
+}
+
+/**
+ * Ends the run a Continue Watching card stands for, when the card is the run.
+ *
+ * The account holds the run, so a card of a running rewatch cannot be taken out of the row locally:
+ * Continue Watching reads the sessions, and the next read, here or on any other device, would put it
+ * back. Closing the session takes the card out everywhere it is read and keeps the watch history
+ * Simkl already has. A card whose series runs no session is left alone.
+ */
+internal suspend fun HomeViewModel.closeRunningRewatchFor(contentId: String): Boolean {
+    val snapshot = simklSyncRepository.state.value.snapshot
+    val (run, sessionId) = runningRewatchFor(snapshot, contentId) ?: return false
     val closed = simklRewatchWriter.closeRewatchSession(
         media = snapshot.mediaReference(contentId = run.contentId, contentType = SERIES_CONTENT_TYPE),
         rewatchId = sessionId
     )
-    if (!closed) return
+    if (!closed) return false
     // The key of the dismissal just made is kept: clearing it in the same breath would put the
     // card straight back. Only the run's other id forms are swept, and only after the close landed.
     for (key in nextUpDismissalKeysToClear(run.matchKeys, contentId)) {
         traktSettingsDataStore.removeDismissedNextUpKeysForContent(key)
+    }
+    return true
+}
+
+private fun HomeViewModel.removeNextUpCardLocally(dismissKey: String) {
+    _uiState.update { state ->
+        state.copy(
+            continueWatchingItems = state.continueWatchingItems.filterNot { item ->
+                item is ContinueWatchingItem.NextUp &&
+                    nextUpDismissKey(
+                        item.info.contentId,
+                        item.info.seedSeason,
+                        item.info.seedEpisode
+                    ) == dismissKey
+            },
+            upcomingItems = state.upcomingItems.filterNot { item ->
+                item is ContinueWatchingItem.NextUp &&
+                    nextUpDismissKey(
+                        item.info.contentId,
+                        item.info.seedSeason,
+                        item.info.seedEpisode
+                    ) == dismissKey
+            }
+        )
     }
 }
 
@@ -3298,38 +3360,29 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
 ) {
     if (isNextUp) {
         val dismissKey = nextUpDismissKey(contentId, season, episode)
-        _uiState.update { state ->
-            state.copy(
-                continueWatchingItems = state.continueWatchingItems.filterNot { item ->
-                    when (item) {
-                        is ContinueWatchingItem.NextUp ->
-                            nextUpDismissKey(
-                                item.info.contentId,
-                                item.info.seedSeason,
-                                item.info.seedEpisode
-                            ) == dismissKey
-                        is ContinueWatchingItem.InProgress -> false
+        val snapshot = simklSyncRepository.state.value.snapshot
+        if (runningRewatchFor(snapshot, contentId) != null) {
+            // The run lives on the account, so the card leaves once the close write returns. Keep
+            // the current row meanwhile so closing one run cannot empty it.
+            cwPendingRewatchCloseContentIds += contentId
+            viewModelScope.launch {
+                try {
+                    // Keep the card when the account close failed: removing it locally would
+                    // hide a run that is still live on Simkl.
+                    if (closeRunningRewatchFor(contentId)) {
+                        runCatching { traktSettingsDataStore.addDismissedNextUpKey(dismissKey) }
+                        removeNextUpCardLocally(dismissKey)
                     }
-                },
-                upcomingItems = state.upcomingItems.filterNot { item ->
-                    when (item) {
-                        is ContinueWatchingItem.NextUp ->
-                            nextUpDismissKey(
-                                item.info.contentId,
-                                item.info.seedSeason,
-                                item.info.seedEpisode
-                            ) == dismissKey
-                        is ContinueWatchingItem.InProgress -> false
-                    }
+                } finally {
+                    cwPendingRewatchCloseContentIds -= contentId
                 }
-            )
+            }
+            return
         }
+        removeNextUpCardLocally(dismissKey)
         viewModelScope.launch {
             traktSettingsDataStore.addDismissedNextUpKey(dismissKey)
         }
-        // Removing a card of a running rewatch is dropping the run, and the run lives on the
-        // account: the session is closed, which is what takes the card out of the row everywhere.
-        viewModelScope.launch { closeRunningRewatchFor(contentId) }
         return
     }
     viewModelScope.launch {

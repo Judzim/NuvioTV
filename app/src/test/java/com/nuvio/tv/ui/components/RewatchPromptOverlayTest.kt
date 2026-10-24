@@ -1,14 +1,17 @@
 package com.nuvio.tv.ui.components
 
 import android.view.KeyEvent
+import com.nuvio.tv.ui.theme.NuvioColorScheme
+import com.nuvio.tv.ui.theme.ThemeColors
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
  * The two answers the rewatch question has to keep straight on a remote.
  *
- * The overlay itself needs a device to draw, but the key it reacts to and the time it waits are
- * values, so they are checked here: down closes the question unanswered, and nothing else does.
+ * The overlay itself needs a device to draw, but the keys it reacts to, the time it waits and the
+ * colours it chooses are values, so they are checked here: down closes the question unanswered,
+ * nothing else does, and only the focused answer takes the accent.
  */
 class RewatchPromptOverlayTest {
 
@@ -52,5 +55,23 @@ class RewatchPromptOverlayTest {
     @Test
     fun `the question waits eight seconds for an answer`() {
         assertEquals(8_000L, REWATCH_QUESTION_TIMEOUT_MS)
+    }
+
+    @Test
+    fun `both answers stay neutral at rest`() {
+        val colors = NuvioColorScheme(ThemeColors.Ocean)
+        val visuals = rewatchAnswerColors(isFocused = false, colors = colors)
+
+        assertEquals(colors.BackgroundCard, visuals.container)
+        assertEquals(colors.TextPrimary, visuals.content)
+    }
+
+    @Test
+    fun `the accent belongs only to the focused answer`() {
+        val colors = NuvioColorScheme(ThemeColors.Ocean)
+        val visuals = rewatchAnswerColors(isFocused = true, colors = colors)
+
+        assertEquals(colors.Secondary, visuals.container)
+        assertEquals(colors.OnSecondary, visuals.content)
     }
 }

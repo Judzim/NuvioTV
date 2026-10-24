@@ -3,9 +3,12 @@
 package com.nuvio.tv.ui.components
 
 import android.view.KeyEvent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,18 +31,23 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Border
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -47,6 +56,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.data.simkl.RewatchQuestion
 import com.nuvio.tv.data.simkl.SimklRewatchConsentRepository
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
+import com.nuvio.tv.ui.theme.NuvioColorScheme
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
 
@@ -85,6 +95,33 @@ internal fun rewatchPromptKeyOutcome(keyCode: Int, action: Int): RewatchPromptKe
     }
 }
 
+/** The colours one answer uses depending on whether it owns focus. */
+internal data class RewatchAnswerColors(
+    val container: Color,
+    val content: Color
+)
+
+/**
+ * Both answers stay neutral until one owns focus.
+ *
+ * The accent is the focus treatment, not the meaning of an answer, so it belongs only to the
+ * focused card. This is what keeps the question from looking like it is about to grant a rewatch
+ * while focus actually sits on the answer that writes nothing.
+ */
+internal fun rewatchAnswerColors(isFocused: Boolean, colors: NuvioColorScheme): RewatchAnswerColors {
+    return if (isFocused) {
+        RewatchAnswerColors(
+            container = colors.Secondary,
+            content = colors.OnSecondary
+        )
+    } else {
+        RewatchAnswerColors(
+            container = colors.BackgroundCard,
+            content = colors.TextPrimary
+        )
+    }
+}
+
 /**
  * The rewatch question, drawn above whatever is on screen.
  *
@@ -93,10 +130,9 @@ internal fun rewatchPromptKeyOutcome(keyCode: Int, action: Int): RewatchPromptKe
  * of the playback and decide there whether the scrobble asks the account for a rewatch. Nothing is
  * written while the question is open, and an unanswered one writes nothing at all.
  *
- * The difference from mobile is the timeout: TV cannot click outside a dialog, so the band closes
- * itself after [REWATCH_QUESTION_TIMEOUT_MS] without an interaction, silently, because the playback
- * underneath is what the user is actually looking at. An answer is only ever what a button press
- * said.
+ * The difference from mobile is the timeout: TV cannot click outside a dialog, so the question
+ * closes itself after [REWATCH_QUESTION_TIMEOUT_MS] without an interaction, silently. An answer is
+ * only ever what a button press said.
  */
 @Composable
 fun RewatchPromptOverlay(
@@ -117,19 +153,12 @@ fun RewatchPromptOverlay(
 }
 
 /**
- * The question itself, drawn as the slim band the app already uses for its own notices.
+ * The question itself, drawn as the same compact dialog the app uses for its own confirmations.
  *
- * The question is not a dialog in the middle of the screen: it is a band on the top edge, built
- * from the same pieces and the same numbers as the new version banner in `com.nuvio.tv.updater.ui`
- * (`app/src/full/java/com/nuvio/tv/updater/ui/UpdateBanner.kt`): a `BackgroundElevated` container
- * with a single line below it, at least 76 dp high, 32 dp of horizontal and 10 dp of vertical
- * padding, a 28 dp icon on the left, then the text, and pill shaped buttons on the right. The banner
- * is the only notice the app has of its own, so the question looks like it and not like its own design.
- *
- * The dialog window stays, but it fills the screen, so focus and the Back button stay with the
- * question: the band is drawn at the top of it, not in the middle. Focus starts on the answer that
- * does not write to the account, so the OK press a user makes to bring up the player controls cannot
- * grant a rewatch by accident; left moves to the recording answer.
+ * The question is raised before a playback, while the source screen is still visible, so it no
+ * longer has to sit on the top edge of a full-screen player. `NuvioDialog` gives it the app's
+ * dialog width, container, border and corner radius; the answers are the focus cards from
+ * `P2pConsentDialog`, neutral until one owns focus. Focus starts on the answer that writes nothing.
  */
 @Composable
 private fun RewatchQuestion(
@@ -154,13 +183,24 @@ private fun RewatchQuestion(
         runCatching { declineFocusRequester.requestFocusAfterFrames() }
     }
 
-    Dialog(
-        onDismissRequest = onLeave,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    NuvioDialog(
+        onDismiss = onLeave,
+        title = "",
+        width = 520.dp
     ) {
+        Text(
+            text = stringResource(R.string.rewatch_prompt_title),
+            style = MaterialTheme.typography.titleLarge,
+            color = NuvioTheme.colors.TextPrimary,
+            textAlign = TextAlign.Center,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Box(
             modifier = modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
                     if (native.action == KeyEvent.ACTION_DOWN) interactionCount += 1
@@ -171,118 +211,102 @@ private fun RewatchQuestion(
                             true
                         }
                     }
-                },
-            contentAlignment = Alignment.TopCenter
+                }
         ) {
-            RewatchQuestionBand(
-                onGrant = onGrant,
-                onDecline = onDecline,
-                grantFocusRequester = grantFocusRequester,
-                declineFocusRequester = declineFocusRequester
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
+            ) {
+                RewatchAnswerCard(
+                    text = stringResource(R.string.rewatch_prompt_confirm),
+                    onClick = onGrant,
+                    focusRequester = grantFocusRequester,
+                    left = grantFocusRequester,
+                    right = declineFocusRequester,
+                    up = grantFocusRequester,
+                    down = grantFocusRequester,
+                    modifier = Modifier.weight(1f)
+                )
+
+                RewatchAnswerCard(
+                    text = stringResource(R.string.rewatch_prompt_dismiss),
+                    onClick = onDecline,
+                    focusRequester = declineFocusRequester,
+                    left = grantFocusRequester,
+                    right = declineFocusRequester,
+                    up = declineFocusRequester,
+                    down = declineFocusRequester,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
 
-/** The band itself: the same pieces, sizes and colours the updater banner is built from. */
+/**
+ * One answer, drawn as the same focusable card the consent dialog uses.
+ *
+ * The card is neutral at rest and takes the accent only while focused, with the same focus ring,
+ * scale and colour animation as `P2pConsentDialog`, so both answers read as one control rather than
+ * as a primary and a secondary button.
+ */
 @Composable
-private fun RewatchQuestionBand(
-    onGrant: () -> Unit,
-    onDecline: () -> Unit,
-    grantFocusRequester: FocusRequester,
-    declineFocusRequester: FocusRequester
+private fun RewatchAnswerCard(
+    text: String,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester,
+    left: FocusRequester,
+    right: FocusRequester,
+    up: FocusRequester,
+    down: FocusRequester,
+    modifier: Modifier = Modifier
 ) {
-    val containerColor = NuvioTheme.colors.BackgroundElevated
-    val dividerColor = NuvioTheme.colors.Border
+    var isFocused by remember { mutableStateOf(false) }
+    val targetColors = rewatchAnswerColors(isFocused, NuvioTheme.colors)
+    val containerColor by animateColorAsState(
+        targetValue = targetColors.container,
+        animationSpec = tween(durationMillis = 150),
+        label = "rewatchAnswerContainer"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = targetColors.content,
+        animationSpec = tween(durationMillis = 150),
+        label = "rewatchAnswerContent"
+    )
+    val shape = RoundedCornerShape(50)
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .drawBehind {
-                drawRect(containerColor)
-                drawRect(
-                    color = dividerColor,
-                    topLeft = Offset(0f, size.height - 1.dp.toPx()),
-                    size = Size(width = size.width, height = 1.dp.toPx())
-                )
-            }
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusProperties {
+                this.left = left
+                this.right = right
+                this.up = up
+                this.down = down
+            },
+        colors = CardDefaults.colors(
+            containerColor = containerColor,
+            focusedContainerColor = containerColor,
+            contentColor = contentColor,
+            focusedContentColor = contentColor
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs),
+                shape = shape
+            )
+        ),
+        shape = CardDefaults.shape(shape = shape),
+        scale = CardDefaults.scale(focusedScale = 1.05f)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 76.dp)
-                .padding(horizontal = 32.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Repeat,
-                contentDescription = null,
-                tint = NuvioTheme.colors.TextPrimary,
-                modifier = Modifier.size(28.dp)
-            )
-
-            Text(
-                text = stringResource(R.string.rewatch_prompt_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = NuvioTheme.colors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-
-            /*
-             * Both buttons keep left and right between themselves. The D pad would otherwise be able
-             * to walk out of the band, because the band is a strip and not a box the focus is
-             * trapped in, and the question would then be left unanswered behind whatever screen the
-             * user moved to.
-             */
-            Button(
-                onClick = onGrant,
-                modifier = Modifier
-                    .focusRequester(grantFocusRequester)
-                    .focusProperties {
-                        left = grantFocusRequester
-                        right = declineFocusRequester
-                        up = grantFocusRequester
-                        down = grantFocusRequester
-                    },
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.Secondary,
-                    focusedContainerColor = NuvioTheme.colors.SecondaryVariant,
-                    contentColor = NuvioTheme.colors.OnSecondary,
-                    focusedContentColor = NuvioTheme.colors.OnSecondaryVariant
-                ),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50)),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.rewatch_prompt_confirm),
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            Button(
-                onClick = onDecline,
-                modifier = Modifier
-                    .focusRequester(declineFocusRequester)
-                    .focusProperties {
-                        left = grantFocusRequester
-                        right = declineFocusRequester
-                        up = declineFocusRequester
-                        down = declineFocusRequester
-                    },
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    focusedContainerColor = NuvioTheme.colors.FocusBackground,
-                    contentColor = NuvioTheme.colors.TextPrimary,
-                    focusedContentColor = NuvioTheme.colors.Primary
-                ),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ) {
-                Text(stringResource(R.string.rewatch_prompt_dismiss))
-            }
-        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            color = contentColor,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+        )
     }
 }
