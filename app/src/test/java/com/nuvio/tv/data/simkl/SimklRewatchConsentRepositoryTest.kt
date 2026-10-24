@@ -10,7 +10,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,6 +33,21 @@ class SimklRewatchConsentRepositoryTest {
             every { activeProfileId } returns activeProfileState
         }
     )
+
+    @Test
+    fun `asking before a playback waits for an answer`() = runTest {
+        val waiting = async { repository.askAndAwait(dark(7), timeoutMs = 5_000L) }
+        runCurrent()
+
+        // The player launch is suspended while the question is on screen.
+        assertEquals(7, repository.question.value?.media?.episode?.number)
+
+        repository.grant()
+        waiting.await()
+
+        assertNull(repository.question.value)
+        assertTrue(repository.grantedFor(dark(7)))
+    }
 
     @Test
     fun `a profile switch drops what the previous profile answered`() {

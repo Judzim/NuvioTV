@@ -1,5 +1,9 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.core.tracking.TrackingEpisode
+import com.nuvio.tv.core.tracking.TrackingExternalIds
+import com.nuvio.tv.core.tracking.TrackingMediaKind
+import com.nuvio.tv.core.tracking.TrackingMediaReference
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -239,6 +243,38 @@ class SimklScrobbleReconciliationTest {
 
         assertFalse(planned.priorWatchForScrobble(result).wasWatched)
         val prior = completed.priorWatchForScrobble(result)
+        assertTrue(prior.wasWatched)
+        assertEquals(1_700_000_000_000L, prior.watchedAtEpochMs)
+    }
+
+    @Test
+    fun `pre-play prior watch reads the item before the player starts`() {
+        val media = showMedia(simklId = 2090L, imdb = "tt1520211")
+        val snapshot = SimklSyncSnapshot(
+            entries = listOf(
+                SimklLibraryEntry(
+                    mediaType = SimklMediaType.SHOWS,
+                    status = SimklListStatus.WATCHING,
+                    show = media,
+                    seasons = listOf(
+                        SimklSeason(
+                            number = 1,
+                            episodes = listOf(SimklEpisode(number = 2, watchedAt = "2023-11-14T22:13:20Z"))
+                        )
+                    )
+                )
+            )
+        )
+        val reference = TrackingMediaReference(
+            kind = TrackingMediaKind.SHOW,
+            title = media.title,
+            year = media.year,
+            ids = TrackingExternalIds(imdb = "tt1520211"),
+            episode = TrackingEpisode(season = 1, number = 2)
+        )
+
+        val prior = snapshot.priorWatchForPlayback(reference)
+
         assertTrue(prior.wasWatched)
         assertEquals(1_700_000_000_000L, prior.watchedAtEpochMs)
     }
