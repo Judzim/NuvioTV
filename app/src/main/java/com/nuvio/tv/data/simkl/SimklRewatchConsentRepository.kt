@@ -10,7 +10,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** An episode that is about to play, held while the user decides whether it opens a run. */
 data class RewatchQuestion(val media: TrackingMediaReference)
@@ -113,6 +115,32 @@ class SimklRewatchConsentRepository @Inject constructor(
         if (answered) return
         if (_question.value?.media?.seriesKey() == seriesKey) return
         _question.value = RewatchQuestion(media)
+    }
+
+    /**
+     * Raises the question and suspends the caller until it is answered or leaves unanswered.
+     *
+     * The stream screen calls this before it opens the player, so the video must not start while
+     * the user is still deciding. The overlay answers through [grant], [decline] or [dismiss]; the
+     * fallback timeout covers a question that never reached the UI, so a broken overlay cannot
+     * block playback forever.
+     */
+    suspend fun askAndAwait(media: TrackingMediaReference, timeoutMs: Long = 10_000L) {
+        ask(media)
+        val seriesKey = media.seriesKey()
+        val open = _question.value
+        if (open == null || open.media.seriesKey() != seriesKey) return
+        val answered = withTimeoutOrNull(timeoutMs) {
+            question.first { it == null || it.media.seriesKey() != seriesKey }
+        }
+        if (answered == null) {
+            synchronized(lock) {
+                if (_question.value?.media?.seriesKey() == seriesKey) {
+                    _question.value = null
+                    dismissedSeriesKeys += seriesKey
+                }
+            }
+        }
     }
 
     /** The user said yes: the series may be written into a run until the account has one. */

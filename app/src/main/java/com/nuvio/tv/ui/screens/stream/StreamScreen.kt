@@ -205,9 +205,17 @@ fun StreamScreen(
         return true
     }
 
-    fun launchInternalPlayer(playbackInfo: StreamPlaybackInfo) {
-        viewModel.onInternalPlayerLaunching()
-        onStreamSelected(playbackInfo)
+    fun launchInternalPlayer(
+        playbackInfo: StreamPlaybackInfo,
+        progressPercent: Double = 0.0
+    ) {
+        scope.coroutineLaunch {
+            // Raise the Simkl rewatch question while the source is still on screen. The player
+            // start asks again only as a fallback, so the question is never shown twice.
+            viewModel.preparePlayback(playbackInfo, progressPercent)
+            viewModel.onInternalPlayerLaunching()
+            onStreamSelected(playbackInfo)
+        }
     }
 
     fun routePlayback(playbackInfo: StreamPlaybackInfo) {
@@ -222,7 +230,10 @@ fun StreamScreen(
         }
         when (preference) {
             PlayerPreference.INTERNAL -> {
-                launchInternalPlayer(playbackInfo)
+                launchInternalPlayer(
+                    playbackInfo = playbackInfo,
+                    progressPercent = (resumePercent?.toDouble() ?: 0.0) * 100.0
+                )
             }
             PlayerPreference.EXTERNAL -> {
                 if (playbackInfo.url != null || playbackInfo.isTorrent) {
@@ -275,8 +286,11 @@ fun StreamScreen(
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
                 }
                 else -> {
-                    viewModel.onInternalPlayerLaunching()
-                    onAutoPlayResolved(playbackInfo)
+                    scope.coroutineLaunch {
+                        viewModel.preparePlayback(playbackInfo, 0.0)
+                        viewModel.onInternalPlayerLaunching()
+                        onAutoPlayResolved(playbackInfo)
+                    }
                 }
             }
             return
@@ -370,6 +384,7 @@ fun StreamScreen(
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
                 }
                 else -> {
+                    viewModel.preparePlayback(playbackInfo, 0.0)
                     viewModel.onInternalPlayerLaunching()
                     onAutoPlayResolved(playbackInfo)
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
