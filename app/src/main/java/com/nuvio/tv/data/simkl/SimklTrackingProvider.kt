@@ -4,6 +4,7 @@ import android.util.Log
 import com.nuvio.tv.core.tracking.TRACKING_SCROBBLE_DIAGNOSTIC_TAG
 import com.nuvio.tv.core.tracking.TrackingCapability
 import com.nuvio.tv.core.tracking.TrackingMediaKind
+import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingProvider
 import com.nuvio.tv.core.tracking.TrackingProviderDescriptor
 import com.nuvio.tv.core.tracking.TrackingProviderId
@@ -186,6 +187,40 @@ class SimklTrackingScrobbler @Inject constructor(
             "simkl adapter complete action=${action.wireValue} " +
                 enrichedEvent.scrobbleDiagnosticSummary()
         )
+    }
+
+    /**
+     * Raises the rewatch question while the source is still on screen, before the player opens.
+     *
+     * The start gate later asks only if this did not happen, so the same question is never shown
+     * twice. The pre-play gate reads the same snapshot, mode and plan as the start gate; the only
+     * difference is that it knows nothing about progress yet, so it takes the resume percentage the
+     * stream screen already has.
+     */
+    override suspend fun preparePlayback(media: TrackingMediaReference, progressPercent: Double) {
+        if (!authRepository.state.value.isAuthenticated) return
+        syncRepository.ensureLoaded()
+        val snapshot = syncRepository.state.value.snapshot
+        val enriched = snapshot.enrichMediaReference(media)
+        val resolved = enriched.resolveAnimeEpisodeForSimkl()
+        val runningSessionId = snapshot.rewatchSessions.activeRewatchSessionId(resolved)
+        if (runningSessionId != null) {
+            rewatchConsentRepository.releaseGrant(resolved)
+            return
+        }
+        val askToStartRun = shouldAskToStartSimklRewatch(
+            mode = rewatchMode(),
+            accountType = authRepository.state.value.accountType,
+            action = TrackingScrobbleAction.START,
+            priorWatch = snapshot.priorWatchForPlayback(enriched),
+            nowEpochMs = System.currentTimeMillis(),
+            hasRunningSession = false,
+            progressPercent = progressPercent,
+            hasPlaybackIdentity = true
+        )
+        if (askToStartRun) {
+            rewatchConsentRepository.askAndAwait(resolved)
+        }
     }
 
     /*

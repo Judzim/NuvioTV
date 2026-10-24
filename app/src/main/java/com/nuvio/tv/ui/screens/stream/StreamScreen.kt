@@ -163,6 +163,19 @@ fun StreamScreen(
         initialValue = StreamBadgeSettings()
     )
     val scope = rememberCoroutineScope()
+
+    /*
+     * Ask the rewatch question from the source itself, before a debrid or YouTube resolver can
+     * cover the stream list with a loading overlay. The resolved URL is not part of the question,
+     * so asking early costs nothing and keeps the player from starting behind the dialog.
+     */
+    suspend fun prepareRewatchBeforeResolve(stream: Stream, progressPercent: Double) {
+        val playsInternally = stream.serverTarget != null || playerPreference == PlayerPreference.INTERNAL
+        if (!playsInternally || stream.isExternal()) return
+        if (stream.isTorrent() && !p2pEnabled) return
+        viewModel.preparePlaybackForStream(stream, progressPercent)
+    }
+
     val streamHazeState = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) HazeState() else null
     }
@@ -205,9 +218,17 @@ fun StreamScreen(
         return true
     }
 
-    fun launchInternalPlayer(playbackInfo: StreamPlaybackInfo) {
-        viewModel.onInternalPlayerLaunching()
-        onStreamSelected(playbackInfo)
+    fun launchInternalPlayer(
+        playbackInfo: StreamPlaybackInfo,
+        progressPercent: Double = 0.0
+    ) {
+        scope.coroutineLaunch {
+            // Raise the Simkl rewatch question while the source is still on screen. The player
+            // start asks again only as a fallback, so the question is never shown twice.
+            viewModel.preparePlayback(playbackInfo, progressPercent)
+            viewModel.onInternalPlayerLaunching()
+            onStreamSelected(playbackInfo)
+        }
     }
 
     fun routePlayback(playbackInfo: StreamPlaybackInfo) {
@@ -222,7 +243,10 @@ fun StreamScreen(
         }
         when (preference) {
             PlayerPreference.INTERNAL -> {
-                launchInternalPlayer(playbackInfo)
+                launchInternalPlayer(
+                    playbackInfo = playbackInfo,
+                    progressPercent = (resumePercent?.toDouble() ?: 0.0) * 100.0
+                )
             }
             PlayerPreference.EXTERNAL -> {
                 if (playbackInfo.url != null || playbackInfo.isTorrent) {
@@ -275,8 +299,11 @@ fun StreamScreen(
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
                 }
                 else -> {
-                    viewModel.onInternalPlayerLaunching()
-                    onAutoPlayResolved(playbackInfo)
+                    scope.coroutineLaunch {
+                        viewModel.preparePlayback(playbackInfo, 0.0)
+                        viewModel.onInternalPlayerLaunching()
+                        onAutoPlayResolved(playbackInfo)
+                    }
                 }
             }
             return
@@ -299,6 +326,7 @@ fun StreamScreen(
             viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
             return@LaunchedEffect
         }
+        prepareRewatchBeforeResolve(stream, 0.0)
         val playbackInfo = viewModel.resolveStreamForPlayback(stream)
         if (playbackInfo == null) {
             viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
@@ -370,6 +398,7 @@ fun StreamScreen(
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
                 }
                 else -> {
+                    viewModel.preparePlayback(playbackInfo, 0.0)
                     viewModel.onInternalPlayerLaunching()
                     onAutoPlayResolved(playbackInfo)
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
@@ -474,6 +503,7 @@ fun StreamScreen(
                     partySource = partySource,
                     onSharedStreamSelected = { stream ->
                         scope.coroutineLaunch {
+                            prepareRewatchBeforeResolve(stream, (resumePercent?.toDouble() ?: 0.0) * 100.0)
                             val playbackInfo = viewModel.resolveStreamForPlayback(stream, saveLastLink = false)
                             if (playbackInfo != null) {
                                 pendingRestoreOnResume = true
@@ -494,6 +524,7 @@ fun StreamScreen(
                             focusedStreamIndex = currentIndex
                         }
                         scope.coroutineLaunch {
+                            prepareRewatchBeforeResolve(stream, (resumePercent?.toDouble() ?: 0.0) * 100.0)
                             val playbackInfo = viewModel.resolveStreamForPlayback(stream)
                             if (playbackInfo != null) {
                                 viewModel.persistBingeGroupForStream(stream)
