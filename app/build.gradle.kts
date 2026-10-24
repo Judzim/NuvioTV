@@ -533,7 +533,7 @@ dependencies {
         "libs/lib-decoder-mpegh-release.aar"
     ))
     add("fullImplementation", files("libs/lib-decoder-iamf-release.aar"))
-    implementation(files("libs/lib-nuvio-engine-android-0.1.5.aar"))
+    implementation(files("libs/lib-nuvio-engine-android-0.1.6.aar"))
     if (useLocalFfmpegDecoder) {
         implementation(project(":ffmpeg-decoder-downmix"))
     } else {

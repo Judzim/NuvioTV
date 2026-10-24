@@ -1401,7 +1401,6 @@
     <string name="parental_severity_moderate">Умерено</string>
     <string name="parental_severity_mild">Леко</string>
     <string name="player_ends_at">Завършва в %1$s</string>
-    <string name="player_via">чрез %1$s</string>
     <!-- Season/episode code shown in player UI (e.g. S01E02). %1$d = season, %2$d = episode. -->
     <string name="season_episode_format">S%1$d E%2$d</string>
     <string name="player_subtitle_delay">Забавяне на субтитрите</string>

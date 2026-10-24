@@ -793,7 +793,6 @@
     <string name="parental_severity_severe">Silne</string>
     <string name="parental_severity_moderate">Umiarkowane</string>
     <string name="parental_severity_mild">Łagodne</string>
-    <string name="player_via">przez %1$s</string>
     <string name="player_subtitle_delay">Opóźnienie napisów</string>
     <string name="player_loading_preparing">Przygotowywanie strumienia…</string>
     <string name="player_loading_detecting_format">Wykrywanie formatu strumienia…</string>

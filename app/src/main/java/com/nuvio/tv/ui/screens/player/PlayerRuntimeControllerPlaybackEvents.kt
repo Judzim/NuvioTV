@@ -22,6 +22,7 @@ import com.nuvio.tv.data.repository.PlaybackIssuePlaybackSettingsInput
 import com.nuvio.tv.data.repository.PlaybackIssueReportInput
 import com.nuvio.tv.data.repository.SkipInterval
 import com.nuvio.tv.domain.model.WatchProgress
+import java.io.IOException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -881,35 +882,39 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
         .copy(progressPercent = fallbackPercent)
 
     scope.launch(kotlinx.coroutines.NonCancellable) {
-        val effectiveContentId = watchProgressRepository.normalizeParentContentId(
-            parentContentId = progress.contentId,
-            videoId = progress.videoId,
-            profileId = profileId
-        )
-        val normalizedProgress = progress.copy(contentId = effectiveContentId)
-        if (normalizedProgress.isCompleted()) {
-            if (!hasMarkedCurrentEpisodeCompleted) {
-                hasMarkedCurrentEpisodeCompleted = true
-                watchProgressRepository.markAsCompleted(
+        try {
+            val effectiveContentId = watchProgressRepository.normalizeParentContentId(
+                parentContentId = progress.contentId,
+                videoId = progress.videoId,
+                profileId = profileId
+            )
+            val normalizedProgress = progress.copy(contentId = effectiveContentId)
+            if (normalizedProgress.isCompleted()) {
+                if (!hasMarkedCurrentEpisodeCompleted) {
+                    hasMarkedCurrentEpisodeCompleted = true
+                    watchProgressRepository.markAsCompleted(
+                        normalizedProgress,
+                        profileId = profileId,
+                        broadcastTrackingHistory = false
+                    )
+                }
+                runCatching { tvRecommendationManager.onProgressRemoved(normalizedProgress.contentId) }
+            } else if (!hasMarkedCurrentEpisodeCompleted) {
+                // Only save in-progress when the episode has not already been
+                // marked as completed during this playback session.  After
+                // natural playback completion the player can report stale
+                // position/duration values (e.g. duration=0 → fallbackPercent=5)
+                // which would overwrite the completed entry in the mutation
+                // store and push an incorrect low-progress value to remote.
+                watchProgressRepository.saveProgress(
                     normalizedProgress,
                     profileId = profileId,
-                    broadcastTrackingHistory = false
+                    syncRemote = syncRemote
                 )
+                runCatching { tvRecommendationManager.updateSingleWatchNextProgram(normalizedProgress) }
             }
-            runCatching { tvRecommendationManager.onProgressRemoved(normalizedProgress.contentId) }
-        } else if (!hasMarkedCurrentEpisodeCompleted) {
-            // Only save in-progress when the episode has not already been
-            // marked as completed during this playback session.  After
-            // natural playback completion the player can report stale
-            // position/duration values (e.g. duration=0 → fallbackPercent=5)
-            // which would overwrite the completed entry in the mutation
-            // store and push an incorrect low-progress value to remote.
-            watchProgressRepository.saveProgress(
-                normalizedProgress,
-                profileId = profileId,
-                syncRemote = syncRemote
-            )
-            runCatching { tvRecommendationManager.updateSingleWatchNextProgram(normalizedProgress) }
+        } catch (error: IOException) {
+            Log.w(PlayerRuntimeController.TAG, "Watch progress could not be saved", error)
         }
     }
 }
