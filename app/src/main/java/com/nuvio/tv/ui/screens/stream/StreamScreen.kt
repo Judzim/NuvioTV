@@ -199,8 +199,7 @@ fun StreamScreen(
                 playbackInfo = playbackInfo,
                 url = url,
                 startFromBeginning = startFromBeginning,
-                context = context,
-                progressPercent = (resumePercent?.toDouble() ?: 0.0) * 100.0
+                context = context
             )
         }
     }
@@ -224,14 +223,8 @@ fun StreamScreen(
         return true
     }
 
-    fun launchInternalPlayer(
-        playbackInfo: StreamPlaybackInfo,
-        progressPercent: Double = 0.0
-    ) {
+    fun launchInternalPlayer(playbackInfo: StreamPlaybackInfo) {
         scope.coroutineLaunch {
-            // Raise the Simkl rewatch question while the source is still on screen. The player
-            // start asks again only as a fallback, so the question is never shown twice.
-            viewModel.preparePlayback(playbackInfo, progressPercent)
             viewModel.onInternalPlayerLaunching()
             onStreamSelected(playbackInfo)
         }
@@ -249,10 +242,7 @@ fun StreamScreen(
         }
         when (preference) {
             PlayerPreference.INTERNAL -> {
-                launchInternalPlayer(
-                    playbackInfo = playbackInfo,
-                    progressPercent = (resumePercent?.toDouble() ?: 0.0) * 100.0
-                )
+                launchInternalPlayer(playbackInfo = playbackInfo)
             }
             PlayerPreference.EXTERNAL -> {
                 if (playbackInfo.url != null || playbackInfo.isTorrent) {
@@ -306,7 +296,6 @@ fun StreamScreen(
                 }
                 else -> {
                     scope.coroutineLaunch {
-                        viewModel.preparePlayback(playbackInfo, 0.0)
                         viewModel.onInternalPlayerLaunching()
                         onAutoPlayResolved(playbackInfo)
                     }
@@ -408,7 +397,6 @@ fun StreamScreen(
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
                 }
                 else -> {
-                    viewModel.preparePlayback(playbackInfo, 0.0)
                     viewModel.onInternalPlayerLaunching()
                     onAutoPlayResolved(playbackInfo)
                     viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)

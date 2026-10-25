@@ -3,10 +3,6 @@
 package com.nuvio.tv.ui.components
 
 import android.view.KeyEvent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,13 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -54,7 +45,6 @@ import com.nuvio.tv.data.simkl.RewatchQuestion
 import com.nuvio.tv.data.simkl.SimklRewatchConsentRepository
 import com.nuvio.tv.ui.screens.ambient.AmbientDialogEffect
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
-import com.nuvio.tv.ui.theme.NuvioColorScheme
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
 
@@ -90,33 +80,6 @@ internal fun rewatchPromptKeyOutcome(keyCode: Int, action: Int): RewatchPromptKe
         RewatchPromptKeyOutcome.IGNORE
     } else {
         RewatchPromptKeyOutcome.KEEP
-    }
-}
-
-/** The colours one answer uses depending on whether it owns focus. */
-internal data class RewatchAnswerColors(
-    val container: Color,
-    val content: Color
-)
-
-/**
- * Both answers stay neutral until one owns focus.
- *
- * The accent is the focus treatment, not the meaning of an answer, so it belongs only to the
- * focused card. This is what keeps the question from looking like it is about to grant a rewatch
- * while focus actually sits on the answer that writes nothing.
- */
-internal fun rewatchAnswerColors(isFocused: Boolean, colors: NuvioColorScheme): RewatchAnswerColors {
-    return if (isFocused) {
-        RewatchAnswerColors(
-            container = colors.Secondary,
-            content = colors.OnSecondary
-        )
-    } else {
-        RewatchAnswerColors(
-            container = colors.BackgroundCard,
-            content = colors.TextPrimary
-        )
     }
 }
 

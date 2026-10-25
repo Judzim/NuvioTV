@@ -1301,7 +1301,7 @@ class StreamScreenViewModel @Inject constructor(
         // The question is part of choosing a source, not of resolving it. Ask for every source
         // that will play in Nuvio, before the resolver can put a loading overlay on screen.
         if (!stream.isExternal()) {
-            preparePlaybackForStream(stream, progressPercent)
+            preparePlaybackForStream(progressPercent)
         }
         stream.serverTarget?.let { target -> return prepareServerStream(stream, target) }
         if (stream.youTubeIdToResolve() != null) {
@@ -1468,12 +1468,12 @@ class StreamScreenViewModel @Inject constructor(
     }
 
     /**
-     * Asks the pre-play question from the selected source, before a debrid resolve can put a
-     * resolving overlay on screen. The source already carries every tracking field the question
-     * needs; the resolved URL is irrelevant to whether a rewatch should be offered.
+     * Asks the pre-play question before a debrid resolve can put a resolving overlay on screen.
+     * The source metadata is already in the screen's saved state; the resolved URL is irrelevant
+     * to whether a rewatch should be offered, and building the item must not cancel stream loads.
      */
-    suspend fun preparePlaybackForStream(stream: Stream, progressPercent: Double) {
-        val item = buildScrobbleItem(getStreamForPlayback(stream, saveLastLink = false)) ?: return
+    suspend fun preparePlaybackForStream(progressPercent: Double) {
+        val item = buildCurrentMediaScrobbleItem() ?: return
         trackingScrobbleCoordinator.preparePlayback(item, progressPercent)
     }
 
@@ -1701,15 +1701,12 @@ class StreamScreenViewModel @Inject constructor(
         resumePositionMs: Long = 0L,
         startFromBeginning: Boolean = false,
         autoLaunch: Boolean = false,
-        context: android.content.Context,
-        progressPercent: Double = 0.0
+        context: android.content.Context
     ) {
         /*
-         * An external player reports its start only after it has already closed, so the normal
-         * start gate cannot ask. Ask here, while the source is still visible, and the grant stays
-         * in the consent repository for the START/STOP pair the return produces.
+         * The question is asked from the selected source before resolve; this path only launches
+         * the player after that answer. Do not ask again here.
          */
-        preparePlayback(playbackInfo, progressPercent)
         streamRepository.setLocalPluginSearchPaused(true)
         externalOverlayHideJob?.cancel()
         // Preserve the current message; blanking it made the card's Crossfade flash
@@ -2086,17 +2083,61 @@ class StreamScreenViewModel @Inject constructor(
         }
     }
 
-    private fun buildScrobbleItem(playbackInfo: StreamPlaybackInfo): TrackingMediaReference? {
-        val rawContentId = playbackInfo.contentId ?: return null
-        val reference = buildTrackingMediaReference(
-            contentType = playbackInfo.contentType ?: "movie",
-            parentMetaId = rawContentId,
+    private fun buildScrobbleItem(playbackInfo: StreamPlaybackInfo): TrackingMediaReference? =
+        buildScrobbleItem(
+            contentId = playbackInfo.contentId,
+            contentType = playbackInfo.contentType,
             videoId = playbackInfo.videoId,
             title = playbackInfo.contentName ?: playbackInfo.title,
             releaseInfo = playbackInfo.year,
             seasonNumber = playbackInfo.season,
             episodeNumber = playbackInfo.episode,
             episodeTitle = playbackInfo.episodeTitle
+        )
+
+    /**
+     * Builds the tracking item from the screen's own metadata, without touching the stream loader.
+     *
+     * The selected source does not change the item: the player already resolved the same fields
+     * from the saved state when it built its own scrobble. The question only needs that item, so it
+     * must not call `getStreamForPlayback`, which cancels the current stream and badge loads.
+     */
+    private fun buildCurrentMediaScrobbleItem(): TrackingMediaReference? =
+        buildScrobbleItem(
+            contentId = contentId ?: videoId.substringBefore(":"),
+            contentType = contentType,
+            videoId = videoId,
+            title = contentName ?: title,
+            releaseInfo = year,
+            seasonNumber = season,
+            episodeNumber = episode,
+            episodeTitle = episodeName
+        )
+
+    /**
+     * The single item builder shared by the pre-play question and the player paths, so the two
+     * cannot disagree about the series, episode, or external ids the grant is keyed by.
+     */
+    private fun buildScrobbleItem(
+        contentId: String?,
+        contentType: String?,
+        videoId: String?,
+        title: String?,
+        releaseInfo: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        episodeTitle: String?
+    ): TrackingMediaReference? {
+        val rawContentId = contentId ?: return null
+        val reference = buildTrackingMediaReference(
+            contentType = contentType ?: "movie",
+            parentMetaId = rawContentId,
+            videoId = videoId,
+            title = title,
+            releaseInfo = releaseInfo,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle
         )
         return reference.takeIf { media ->
             media.hasResolvableIdentity &&
