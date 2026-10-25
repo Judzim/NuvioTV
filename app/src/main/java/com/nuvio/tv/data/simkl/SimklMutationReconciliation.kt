@@ -124,7 +124,7 @@ private fun SimklSyncSnapshot.withRewatchRemoval(
         val number = mutation.episode?.number ?: return@forEach
         updatedSessions = updatedSessions.map { entry ->
             if (entry.rewatchId == rewatchId && entry.media?.matchesTarget(target) == true) {
-                entry.withoutWatchedEpisode(season, number)
+                entry.withoutWatchedEpisode(season, number, dropFromList = true)
             } else {
                 entry
             }
@@ -166,16 +166,32 @@ private fun SimklSyncSnapshot.withoutHistory(
 
 private fun SimklLibraryEntry.withoutWatchedEpisode(
     season: Int?,
-    number: Int
+    number: Int,
+    dropFromList: Boolean = false
 ): SimklLibraryEntry {
-    val targetSeason = season ?: 1
     val updatedSeasons = seasons.map { candidateSeason ->
         candidateSeason.copy(
-            episodes = candidateSeason.episodes.map { episode ->
-                val matchesCanonical = candidateSeason.number == targetSeason && episode.number == number
-                val matchesTvdb = episode.tvdb?.season == targetSeason &&
-                    episode.tvdb.episode == number
-                if (matchesCanonical || matchesTvdb) episode.copy(watchedAt = null) else episode
+            episodes = candidateSeason.episodes.mapNotNull { episode ->
+                // A flat anime session has no season number, and simkl may return it either as
+                // null or as season 1. Match both so a removal also updates the local snapshot.
+                val matchesCanonical = when (season) {
+                    null -> (candidateSeason.number == null || candidateSeason.number == 1) &&
+                        episode.number == number
+                    else -> candidateSeason.number == season && episode.number == number
+                }
+                val matchesTvdb = when (season) {
+                    null -> (episode.tvdb?.season == null || episode.tvdb?.season == 1) &&
+                        episode.tvdb?.episode == number
+                    else -> episode.tvdb?.season == season && episode.tvdb?.episode == number
+                }
+                when {
+                    !(matchesCanonical || matchesTvdb) -> episode
+                    // A rewatch removal removes the viewing from the session. Leaving the episode
+                    // behind with a null date made rewatchedEpisodes fall back to the session date
+                    // and draw the removed episode as rewatched again.
+                    dropFromList -> null
+                    else -> episode.copy(watchedAt = null)
+                }
             }
         )
     }
