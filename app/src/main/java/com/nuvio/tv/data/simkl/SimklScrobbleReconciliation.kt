@@ -360,10 +360,6 @@ internal fun SimklSyncSnapshot.priorWatchForPlayback(media: TrackingMediaReferen
     )
 }
 
-internal fun SimklMedia.matchesTarget(target: SimklMedia): Boolean {
-    val candidateIds = toTrackingExternalIds()
-    val targetIds = target.toTrackingExternalIds()
-
 internal fun SimklMedia.matchesTarget(target: SimklMedia): Boolean =
     matchesTargetWithIds(toTrackingExternalIds(), target, target.toTrackingExternalIds())
 
