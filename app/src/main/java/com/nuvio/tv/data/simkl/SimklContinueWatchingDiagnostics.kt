@@ -128,7 +128,10 @@ internal fun buildSimklSeedDiagnosticReport(
         .groupBy { item -> item.contentId.diagnosticKey() }
     val seedsByContent = seeds.associateBy { progress -> progress.contentId.diagnosticKey() }
     val playbackByContent = snapshot.playback
-        .mapNotNull { session -> session.toWatchProgress(snapshot.entries, completionThresholdFraction) }
+        .mapNotNull { session -> session.toWatchProgress(
+            snapshot.entries,
+            completionThresholdFraction = completionThresholdFraction
+        ) }
         .groupBy { progress -> progress.contentId.diagnosticKey() }
     val seedOrder = seeds.withIndex().associate { (index, seed) ->
         seed.contentId.diagnosticKey() to index

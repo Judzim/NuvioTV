@@ -1,7 +1,9 @@
 package com.nuvio.tv.data.mdblist
 
+import android.util.Log
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TRACKING_COMPLETION_BAR_PERCENT
+import com.nuvio.tv.core.tracking.TRACKING_SCROBBLE_DIAGNOSTIC_TAG
 import com.nuvio.tv.core.tracking.TrackingCapability
 import com.nuvio.tv.core.tracking.TrackingHistoryItem
 import com.nuvio.tv.core.tracking.TrackingHistoryWriter
@@ -13,6 +15,7 @@ import com.nuvio.tv.core.tracking.TrackingProviderId
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import com.nuvio.tv.core.tracking.TrackingScrobbler
+import com.nuvio.tv.core.tracking.scrobbleDiagnosticSummary
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +48,7 @@ class MdbListTrackingProvider @Inject constructor(
 
 @Singleton
 class MdbListTrackingScrobbler @Inject constructor(
+    private val auth: MdbListAuthStore,
     private val sync: MdbListSyncRepository,
     private val service: MdbListScrobbleService
 ) : TrackingScrobbler {
@@ -59,6 +63,13 @@ class MdbListTrackingScrobbler @Inject constructor(
     private var lastCompletedPlaybackId: Long = 0L
 
     override suspend fun scrobble(action: TrackingScrobbleAction, event: TrackingScrobbleEvent) {
+        val authenticated = auth.state.value.isAuthenticated
+        Log.d(TRACKING_SCROBBLE_DIAGNOSTIC_TAG, "mdblist adapter received action=${action.wireValue} authenticated=$authenticated ${event.scrobbleDiagnosticSummary()}")
+        if (!authenticated) {
+            Log.d(TRACKING_SCROBBLE_DIAGNOSTIC_TAG, "mdblist adapter skipped action=${action.wireValue} reason=not_authenticated")
+            return
+        }
+        sync.ensureLoaded()
         val completesPlayback = action == TrackingScrobbleAction.STOP &&
             event.progressPercent >= TRACKING_COMPLETION_BAR_PERCENT
         if (completesPlayback &&
@@ -67,12 +78,18 @@ class MdbListTrackingScrobbler @Inject constructor(
         ) {
             return
         }
-        val written = service.scrobble(sync.currentScope(), action, event)
-        // The id is latched only after the tracker accepted the write, so a failed stop cannot
-        // suppress the later stop that really ends the playback.
-        if (completesPlayback && written && event.playbackId != 0L) {
-            lastCompletedPlaybackId = event.playbackId
+        try {
+            val written = service.scrobble(sync.currentScope(), action, event)
+            // The id is latched only after the tracker accepted the write, so a failed stop cannot
+            // suppress the later stop that really ends the playback.
+            if (completesPlayback && written && event.playbackId != 0L) {
+                lastCompletedPlaybackId = event.playbackId
+            }
+        } catch (error: Throwable) {
+            Log.w(TRACKING_SCROBBLE_DIAGNOSTIC_TAG, "mdblist adapter failed action=${action.wireValue} error=${error.javaClass.simpleName}:${error.message} ${event.scrobbleDiagnosticSummary()}", error)
+            throw error
         }
+        Log.d(TRACKING_SCROBBLE_DIAGNOSTIC_TAG, "mdblist adapter complete action=${action.wireValue} ${event.scrobbleDiagnosticSummary()}")
     }
 }
 

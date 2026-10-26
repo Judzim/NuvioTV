@@ -46,11 +46,13 @@ class SimklTrackingHistoryWriter @Inject constructor(
         if (pushableItems.isEmpty()) return TrackingMutationResult(0)
         syncRepository.ensureLoaded()
         val snapshot = syncRepository.state.value.snapshot
+        val entryIndex = syncRepository.currentEntryIndex()
         val mode = settingsDataStore.simklRewatchMode.first()
         val accountType = authRepository.state.value.accountType
         val result = service.addToHistory(
             pushableItems.map { item ->
-                val enriched = snapshot.enrichMediaReference(item.media).resolveAnimeEpisodeForSimkl()
+                val enriched = snapshot.enrichMediaReference(item.media, entryIndex)
+                    .resolveAnimeEpisodeForSimkl()
                 val runningSessionId = snapshot.rewatchSessions.activeRewatchSessionId(enriched)
                 if (
                     shouldRecordSimklRewatchOnMark(
@@ -88,9 +90,10 @@ class SimklTrackingHistoryWriter @Inject constructor(
         if (profileId != profileManager.activeProfileId.value) return TrackingMutationResult(0)
         syncRepository.ensureLoaded()
         val snapshot = syncRepository.state.value.snapshot
+        val entryIndex = syncRepository.currentEntryIndex()
         return service.removeFromHistory(
             items.map { ref ->
-                snapshot.enrichMediaReference(ref).resolveAnimeEpisodeForSimkl()
+                snapshot.enrichMediaReference(ref, entryIndex).resolveAnimeEpisodeForSimkl()
             }
         )
     }

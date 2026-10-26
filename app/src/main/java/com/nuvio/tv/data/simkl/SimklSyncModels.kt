@@ -204,7 +204,8 @@ data class SimklSyncSnapshot(
      */
     val rewatchSessionsComplete: Boolean = false,
     val lastSyncedAtEpochMs: Long? = null,
-    val lastCheckedAtEpochMs: Long? = null
+    val lastCheckedAtEpochMs: Long? = null,
+    val storageRevision: String? = null
 )
 
 data class SimklSyncState(
