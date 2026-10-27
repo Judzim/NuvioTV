@@ -64,6 +64,22 @@ jobs:
       - name: Assemble the per-ABI benchmark APKs
         run: ./gradlew :app:assembleFullBenchmark --max-workers=2 --stacktrace
 
+      - name: Dump failing test details
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+
+          for path in sorted(glob.glob("app/build/test-results/testFullDebugUnitTest/*.xml")):
+              root = ET.parse(path).getroot()
+              for case in root.iter("testcase"):
+                  for failure in list(case.findall("failure")) + list(case.findall("error")):
+                      print("===", case.get("classname"), ">", case.get("name"))
+                      print((failure.get("message") or "")[:2000])
+                      print((failure.text or "")[:4000])
+          PY
+
       - name: Keep only the 32-bit APK
         run: |
           ls -la app/build/outputs/apk/full/benchmark/
