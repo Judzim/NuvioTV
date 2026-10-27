@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.nuvio.tv.TestPreferencesStore
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.ProfileDataStoreFactory
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -12,7 +13,6 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -29,10 +29,21 @@ import org.junit.Test
 
 class SimklSyncRepositoryStorageTest {
 
-    /** The projection reads the watched threshold and the rewatch mode, so the store has to answer. */
-    private fun settingsStore(): TraktSettingsDataStore = mockk(relaxed = true) {
-        every { simklWatchedThresholdPercent } returns flowOf(80)
-        every { simklRewatchMode } returns flowOf(SimklRewatchMode.OFF)
+    /**
+     * The projection reads the watched threshold and the rewatch mode, so the store has to answer.
+     * A real store over in-memory preferences gives the documented defaults, the same as the
+     * scrobbler test's fixture.
+     */
+    private fun settingsStore(): TraktSettingsDataStore {
+        val preferences = TestPreferencesStore()
+        return TraktSettingsDataStore(
+            mockk<ProfileDataStoreFactory>().also { factory ->
+                every { factory.get(any(), any()) } returns preferences
+            },
+            mockk<ProfileManager>().also { manager ->
+                every { manager.activeProfileId } returns MutableStateFlow(1)
+            }
+        )
     }
 
     private class FakeSimklSyncStorage : SimklSyncStorage {
