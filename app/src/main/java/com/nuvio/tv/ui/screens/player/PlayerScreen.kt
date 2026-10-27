@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.layout.boundsInWindow
 import com.nuvio.tv.ui.screens.detail.formatPlaybackTime
 import com.nuvio.tv.ui.theme.NuvioMotion
+import kotlinx.coroutines.delay
 
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.theme.accentBrush
@@ -104,6 +105,14 @@ import androidx.compose.ui.layout.onPlaced
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -166,6 +175,8 @@ import com.nuvio.tv.libass.media.widget.AssSubtitleSurfaceView
 import kotlin.math.abs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
+
+private const val PLAYER_CONTROLS_FADE_DURATION_MS = 200
 
 private fun PlayerUiState.returnFocusSeasonEpisode(completed: Boolean): Pair<Int?, Int?> {
     val next = nextEpisode?.takeIf {
@@ -469,6 +480,22 @@ fun PlayerScreen(
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
                     viewModel.pauseForLifecycle()
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    // This back stack entry also stops when the player is navigated away from or
+                    // exited, where the normal release has to run; only act when the app itself
+                    // left the foreground.
+                    val hostActivity = context as? androidx.activity.ComponentActivity
+                    if (
+                        hostActivity != null &&
+                        isAppBackgroundStop(
+                            isFinishing = hostActivity.isFinishing,
+                            isChangingConfigurations = hostActivity.isChangingConfigurations,
+                            hostState = hostActivity.lifecycle.currentState
+                        )
+                    ) {
+                        viewModel.releaseForBackground()
+                    }
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     // Re-create the MediaSession so media controls work in foreground.
@@ -1155,7 +1182,19 @@ fun PlayerScreen(
                 var subtitleLiftPx by remember { mutableFloatStateOf(0f) }
                 var pendingDropCueVersion by remember { mutableStateOf<Long?>(null) }
                 var subtitleDropTimedOut by remember { mutableStateOf(false) }
-                val applySubtitleLiftImmediately = !uiState.isPlaying || previewConfiguredSubtitlePosition
+                var controlsHideAnimationFinished by remember { mutableStateOf(false) }
+                LaunchedEffect(playerControlsVisible) {
+                    controlsHideAnimationFinished = false
+                    if (!playerControlsVisible) {
+                        delay(PLAYER_CONTROLS_FADE_DURATION_MS.toLong())
+                        controlsHideAnimationFinished = true
+                    }
+                }
+                val applySubtitleLiftImmediately = shouldApplySubtitleLiftImmediately(
+                    isPlaying = uiState.isPlaying,
+                    previewConfiguredPosition = previewConfiguredSubtitlePosition,
+                    controlsVisible = playerControlsVisible || !controlsHideAnimationFinished
+                )
                 LaunchedEffect(
                     targetSubtitleLiftPx,
                     subtitleCueState,
@@ -1521,8 +1560,8 @@ fun PlayerScreen(
         // Controls overlay
         AnimatedVisibility(
             visible = playerControlsVisible,
-            enter = fadeIn(animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(200))
+            enter = fadeIn(animationSpec = tween(PLAYER_CONTROLS_FADE_DURATION_MS)),
+            exit = fadeOut(animationSpec = tween(PLAYER_CONTROLS_FADE_DURATION_MS))
         ) {
             val context = LocalContext.current
             PlayerControlsOverlay(
@@ -2759,36 +2798,13 @@ private fun PlayerControlsOverlay(
                         )
                     }
 
-                    val hasYear = !uiState.releaseYear.isNullOrBlank()
-                    val showVia = !uiState.isPlaying && !uiState.currentStreamName.isNullOrBlank()
-                    val yearText = uiState.releaseYear.orEmpty()
-
-                    if (hasYear || showVia) {
-                        Column {
-                            if (hasYear) {
-                                Text(
-                                    text = yearText,
-                                    modifier = Modifier.reportRightEdge("year", titleRights),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.68f)
-                                )
-                            }
-
-                            AnimatedVisibility(
-                                visible = showVia,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
-                                exit = fadeOut(animationSpec = tween(durationMillis = NuvioMotion.tokens.durations.fast))
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.player_via, (uiState.currentStreamName ?: "").replace("\n", " · ")),
-                                    modifier = Modifier.reportRightEdge("via", titleRights),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.68f),
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
+                    if (!uiState.releaseYear.isNullOrBlank()) {
+                        Text(
+                            text = uiState.releaseYear.orEmpty(),
+                            modifier = Modifier.reportRightEdge("year", titleRights),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.68f)
+                        )
                     }
                 }
             }
@@ -3250,6 +3266,7 @@ private fun ProgressBar(
     chapters: List<PlayerChapter> = emptyList()
 ) {
     val accentBrush = NuvioTheme.palette.accentBrush()
+    val seekBarLabel = stringResource(R.string.cd_seek_bar)
     val progress = if (duration > 0) {
         (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     } else 0f
@@ -3293,6 +3310,10 @@ private fun ProgressBar(
                 if (it.isFocused) onFocused?.invoke()
             }
             .focusable()
+            .semantics {
+                contentDescription = seekBarLabel
+                progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
+            }
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
                     when (keyEvent.nativeKeyEvent.keyCode) {
@@ -3979,7 +4000,9 @@ private fun ErrorOverlay(
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxl)
+                modifier = Modifier
+                    .padding(horizontal = NuvioTheme.spacing.xxl)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
             )
 
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.lg))
@@ -4000,7 +4023,9 @@ private fun ErrorOverlay(
                         else -> Color.White.copy(alpha = 0.7f)
                     },
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxl)
+                    modifier = Modifier
+                        .padding(horizontal = NuvioTheme.spacing.xxl)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
                 )
             }
 

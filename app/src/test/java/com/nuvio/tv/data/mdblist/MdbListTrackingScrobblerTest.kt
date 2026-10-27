@@ -9,6 +9,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -64,10 +65,13 @@ class MdbListTrackingScrobblerTest {
     }
 
     private fun scrobbler(service: MdbListScrobbleService): MdbListTrackingScrobbler {
-        val sync = mockk<MdbListSyncRepository>()
+        val sync = mockk<MdbListSyncRepository>(relaxed = true)
         every { sync.currentScope() } returns MdbListAuthScope(profileId = 1, generation = 1L)
         coEvery { service.scrobble(any(), any(), any()) } returns true
-        return MdbListTrackingScrobbler(sync = sync, service = service)
+        // The adapter skips an unauthenticated account, so the mock has to report a signed-in one.
+        val auth = mockk<MdbListAuthStore>()
+        every { auth.state } returns MutableStateFlow(MdbListAuthState(isAuthenticated = true))
+        return MdbListTrackingScrobbler(auth = auth, sync = sync, service = service)
     }
 
     private fun event(progressPercent: Double, playbackId: Long) = TrackingScrobbleEvent(
