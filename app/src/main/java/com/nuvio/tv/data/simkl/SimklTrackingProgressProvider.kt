@@ -133,5 +133,5 @@ internal fun checkWatchedByVideoId(
     episode: Int,
     completionThresholdFraction: Float? = null
 ): Boolean = SimklSnapshotProjection
-    .create(snapshot, completionThresholdFraction)
+    .create(snapshot, completionThresholdFraction = completionThresholdFraction)
     .isWatchedByVideoId(videoId, episode)
