@@ -140,6 +140,7 @@ internal fun PlayerRuntimeController.applyAudioDelay(delayMs: Int) {
 internal fun PlayerRuntimeController.applyEffectiveAudioDelay() {
     val totalMs = audioDelayParts.totalMs
     audioDelayUs.set(totalMs.toLong() * 1000L)
+    _exoPlayer?.getAssHandlerCompat()?.let { it.audioDelayUs = totalMs.toLong() * 1000L }
     _uiState.update { it.copy(audioDelayMs = totalMs) }
     if (isUsingMpvEngine()) {
         mpvView?.setAudioDelayMs(totalMs)
@@ -186,6 +187,10 @@ internal fun PlayerRuntimeController.applyStreamSubtitleOffset() {
     )
     val offsetUs = if (applies) audioDelayParts.streamSourceOffsetMs.toLong() * 1000L else 0L
     if (streamSubtitleDelayUs.getAndSet(offsetUs) == offsetUs) return
+    // Update libass with combined user delay + stream offset.
+    _exoPlayer?.getAssHandlerCompat()?.let {
+        it.subtitleDelayUs = subtitleDelayUs.get() + offsetUs
+    }
     if (isUsingMpvEngine()) {
         mpvView?.setSubtitleDelayMs(mpvSubtitleDelayMs(state.subtitleDelayMs))
     }
@@ -378,12 +383,18 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     }
                     val displayPosition = pendingPreviewSeekPosition ?: pos
                     val playingForWatchClock = playingNow && !cacheBuffering
+                    mpvDurationGrowth = LivePlaybackUiPolicy.nextDurationGrowth(
+                        previous = mpvDurationGrowth,
+                        mediaKey = currentStreamUrl,
+                        durationMs = playerDuration,
+                        fromRequestedMedia = view.isPositionFromRequestedMedia()
+                    )
                     publishPlaybackTimeline(
                         currentPosition = displayPosition,
                         duration = playerDuration,
                         bufferedPosition = (pos + (view.demuxerCacheDurationSec() * 1000.0).toLong())
                             .coerceAtLeast(displayPosition),
-                        playerReportsLive = view.isLiveStreamNow(),
+                        playerReportsLive = view.isLiveStreamNow() || mpvDurationGrowth.grew,
                         isPlaying = playingForWatchClock
                     )
                     // Prefer the largest known duration; MPV can report a shorter one transiently.
@@ -754,6 +765,9 @@ private fun String.reportSafeHost(): String {
 
 internal fun PlayerRuntimeController.saveWatchProgressIfNeeded() {
     if (!hasRenderedFirstFrame) return
+    // A live stream's position is no point to come back to: resuming there seeks past what the
+    // stream holds and nothing plays
+    if (_playbackTimeline.value.isLive) return
     val currentPosition = currentPlaybackPositionMs() ?: return
     val duration = getEffectiveDuration(currentPosition)
     // Don't save progress for very short streams (< 2:01) — these are
@@ -769,6 +783,7 @@ internal fun PlayerRuntimeController.saveWatchProgressIfNeeded() {
 
 internal fun PlayerRuntimeController.saveWatchProgress() {
     if (!hasRenderedFirstFrame) return
+    if (_playbackTimeline.value.isLive) return
     val currentPosition = currentPlaybackPositionMs() ?: return
     val duration = getEffectiveDuration(currentPosition)
     if (isShortPlaceholderDuration(duration)) return
@@ -1378,6 +1393,10 @@ internal fun PlayerRuntimeController.setSubtitleDelayMs(targetMs: Int, showOverl
     val keepInlineInSubtitleOverlay = showOverlay && currentState.showSubtitleOverlay
 
     subtitleDelayUs.set(newDelayMs.toLong() * 1000L)
+    // Propagate to libass so overlay and video effect paths also shift.
+    _exoPlayer?.getAssHandlerCompat()?.let {
+        it.subtitleDelayUs = newDelayMs.toLong() * 1000L + streamSubtitleDelayUs.get()
+    }
     if (isUsingMpvEngine()) {
         mpvView?.setSubtitleDelayMs(mpvSubtitleDelayMs(newDelayMs))
     }
