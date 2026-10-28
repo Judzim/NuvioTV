@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * The two answers the rewatch question has to keep straight on a remote.
  *
- * The overlay itself needs a device to draw, but the key it reacts to and the time it waits are
+ * The overlay itself needs a device to draw, but the keys it reacts to and the time it waits are
  * values, so they are checked here: down closes the question unanswered, and nothing else does.
  */
 class RewatchPromptOverlayTest {
@@ -53,4 +53,6 @@ class RewatchPromptOverlayTest {
     fun `the question waits eight seconds for an answer`() {
         assertEquals(8_000L, REWATCH_QUESTION_TIMEOUT_MS)
     }
+
+
 }
