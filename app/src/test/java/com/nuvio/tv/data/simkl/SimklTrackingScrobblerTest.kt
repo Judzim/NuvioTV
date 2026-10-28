@@ -519,6 +519,9 @@ class SimklTrackingScrobblerTest {
             SimklAuthState(isAuthenticated = true, accountType = accountType)
         )
         every { syncRepository.state } returns MutableStateFlow(SimklSyncState())
+        // mockk's relaxed answer ignores nullability and hands out a chained mock, so the empty
+        // snapshot has to say the index is absent; otherwise enrichment reads a fake entry.
+        every { syncRepository.currentEntryIndex() } returns null
     }
 
     private fun accountAnswers(result: SimklScrobbleResult) {
