@@ -122,8 +122,8 @@ fun RewatchPromptOverlay(
  *
  * The two screens are the only pre-play interruptions in the app, so they use one visual language:
  * the same 520 dp container, headline, card row, focus ring and scale. The answers are ordered
- * like the consent dialog too: the answer that does nothing is first and owns the initial focus,
- * and the answer that starts the run is second and takes the accent only while focused.
+ * like the consent dialog too: the answer that does nothing is first, and the answer that starts
+ * the run is second, takes the accent only while focused and owns the initial focus.
  */
 @Composable
 private fun RewatchQuestion(
@@ -133,7 +133,7 @@ private fun RewatchQuestion(
     onLeave: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cancelFocusRequester = remember { FocusRequester() }
+    val grantFocusRequester = remember { FocusRequester() }
     var interactionCount by remember(question) { mutableIntStateOf(0) }
 
     // The timer restarts on every key press: "no interaction" is measured from the last one, so the
@@ -144,7 +144,7 @@ private fun RewatchQuestion(
     }
 
     LaunchedEffect(question) {
-        runCatching { cancelFocusRequester.requestFocusAfterFrames() }
+        runCatching { grantFocusRequester.requestFocusAfterFrames() }
     }
 
     Dialog(
@@ -192,8 +192,7 @@ private fun RewatchQuestion(
                     Card(
                         onClick = onDecline,
                         modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(cancelFocusRequester),
+                            .weight(1f),
                         colors = CardDefaults.colors(
                             containerColor = NuvioTheme.colors.BackgroundElevated,
                             focusedContainerColor = NuvioTheme.colors.BackgroundElevated
@@ -224,6 +223,7 @@ private fun RewatchQuestion(
                         onClick = onGrant,
                         modifier = Modifier
                             .weight(1f)
+                            .focusRequester(grantFocusRequester)
                             .onFocusChanged { startFocused = it.isFocused },
                         colors = CardDefaults.colors(
                             containerColor = NuvioTheme.colors.BackgroundElevated,
