@@ -1,0 +1,84 @@
+name: Mobile rewatch CI
+
+# Scratch cross-repo workflow on the TV fork: the mobile fork's Actions are disabled, so this
+# checks out the mobile branch and runs its host tests here. Not part of any pull request.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - mobile-ci
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-rewatch-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Mobile host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the mobile branch
+        uses: actions/checkout@v6
+        with:
+          repository: Judzim/NuvioMobile
+          ref: simkl-rewatch-build-25
+          path: mobile
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Write runtime properties
+        working-directory: mobile
+        env:
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+          SIMKL_APP_NAME: ${{ secrets.SIMKL_APP_NAME }}
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          INTRODB_API_URL: ${{ secrets.INTRODB_API_URL }}
+        run: |
+          printf '%s\n' \
+            "SIMKL_CLIENT_ID=${SIMKL_CLIENT_ID}" \
+            "SIMKL_APP_NAME=${SIMKL_APP_NAME:-nuvio}" \
+            "SIMKL_REDIRECT_URI=nuvio://auth/simkl" \
+            "NUVIO_SUPABASE_URL=${NUVIO_SUPABASE_URL}" \
+            "NUVIO_SUPABASE_ANON_KEY=${NUVIO_SUPABASE_ANON_KEY}" \
+            "NUVIO_SUPABASE_FALLBACK_URL=${NUVIO_SUPABASE_FALLBACK_URL}" \
+            "INTRODB_API_URL=${INTRODB_API_URL}" \
+            > local.properties
+
+      - name: Compile host tests
+        working-directory: mobile
+        run: ./gradlew :composeApp:compileAndroidHostTest --stacktrace
+
+      - name: Unit tests
+        id: tests
+        continue-on-error: true
+        working-directory: mobile
+        run: ./gradlew :composeApp:testAndroidHostTest --continue --stacktrace
+
+      - name: Keep the test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mobile-rewatch-test-results
+          path: mobile/composeApp/build/test-results/testAndroidHostTest/*.xml
+          if-no-files-found: warn
+
+      - name: Fail the run when the tests failed
+        if: always() && steps.tests.outcome == 'failure'
+        run: |
+          echo "The mobile unit tests failed. Read the summary in the log and the test artifact."
+          exit 1
